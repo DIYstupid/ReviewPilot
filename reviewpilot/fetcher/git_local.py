@@ -91,6 +91,7 @@ def _run_git(args: list[str], *, redacted_args: list[str] | None = None) -> None
         capture_output=True,
         check=False,
         text=True,
+        timeout=120,
     )
     if result.returncode != 0:
         safe_args = redacted_args or args

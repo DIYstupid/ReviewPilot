@@ -3,9 +3,11 @@ from fastapi.staticfiles import StaticFiles
 
 from reviewpilot.api import auth, feedback, review
 from reviewpilot.config import get_settings
+from reviewpilot.logging_config import setup_logging
 
 
 def create_app() -> FastAPI:
+    setup_logging()
     settings = get_settings()
     app = FastAPI(title=settings.app_name)
     app.mount("/static", StaticFiles(directory="reviewpilot/static"), name="static")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from dataclasses import asdict, dataclass, field
@@ -59,6 +60,10 @@ class PullRequestSnapshot:
 
 class GitHubAPIError(RuntimeError):
     """Raised when GitHub returns an unsuccessful response."""
+
+    def __init__(self, message: str, status_code: int = 0) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def parse_pr_url(url: str) -> PullRequestRef:
@@ -205,7 +210,10 @@ class GitHubClient:
         path: str,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        response = await client.get(path, headers=self._headers(), params=params)
+        async def _req() -> Any:
+            return await client.get(path, headers=self._headers(), params=params)
+
+        response = await self._retry_request(_req, f"get {path}")
         self._raise_for_status(response)
         data = response.json()
         if not isinstance(data, dict):
@@ -217,11 +225,14 @@ class GitHubClient:
         page = 1
         per_page = 100
         while True:
-            response = await client.get(
-                path,
-                headers=self._headers(),
-                params={"page": page, "per_page": per_page},
-            )
+            async def _req() -> Any:
+                return await client.get(
+                    path,
+                    headers=self._headers(),
+                    params={"page": page, "per_page": per_page},
+                )
+
+            response = await self._retry_request(_req, f"get-page {path}")
             self._raise_for_status(response)
             data = response.json()
             if not isinstance(data, list):
@@ -232,12 +243,18 @@ class GitHubClient:
             page += 1
 
     async def _get_text(self, client: Any, path: str, accept: str) -> str:
-        response = await client.get(path, headers=self._headers(accept=accept))
+        async def _req() -> Any:
+            return await client.get(path, headers=self._headers(accept=accept))
+
+        response = await self._retry_request(_req, f"get-text {path}")
         self._raise_for_status(response)
         return response.text
 
     async def _post_json(self, client: Any, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        response = await client.post(path, headers=self._headers(), json=body)
+        async def _req() -> Any:
+            return await client.post(path, headers=self._headers(), json=body)
+
+        response = await self._retry_request(_req, f"post {path}")
         self._raise_for_status(response)
         data = response.json()
         if not isinstance(data, dict):
@@ -262,7 +279,25 @@ class GitHubClient:
         if response.status_code < 400:
             return
         message = response.text[:300] if response.text else response.reason_phrase
-        raise GitHubAPIError(f"GitHub API returned {response.status_code}: {message}")
+        raise GitHubAPIError(
+            f"GitHub API returned {response.status_code}: {message}",
+            status_code=response.status_code,
+        )
+
+    _RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+    async def _retry_request(self, op: Any, op_name: str) -> Any:
+        last_exc: Exception | None = None
+        for attempt in range(4):
+            try:
+                return await op()
+            except GitHubAPIError as exc:
+                last_exc = exc
+                if exc.status_code not in self._RETRYABLE_STATUSES or attempt >= 3:
+                    raise
+            delay = min(1.0 * (2 ** attempt), 30.0)
+            await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
 
 def _contents_path(ref: PullRequestRef, file_path: str) -> str:

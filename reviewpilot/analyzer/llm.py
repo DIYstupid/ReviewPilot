@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
@@ -68,17 +69,40 @@ class ChatCompletionClient:
         import httpx
 
         payload = _request_payload(request)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        data: dict[str, Any] | None = None
+        last_exc: Exception | None = None
+        for attempt in range(4):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                if response.status_code >= 400:
+                    if response.status_code in {429, 500, 502, 503, 504} and attempt < 3:
+                        await asyncio.sleep(min(1.0 * (2 ** attempt), 30.0))
+                        continue
+                    response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code not in {429, 500, 502, 503, 504} or attempt >= 3:
+                    raise
+                await asyncio.sleep(min(1.0 * (2 ** attempt), 30.0))
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_exc = exc
+                if attempt >= 3:
+                    raise
+                await asyncio.sleep(min(1.0 * (2 ** attempt), 30.0))
+        if data is None and last_exc is not None:
+            raise last_exc
+        if data is None:
+            raise RuntimeError("LLM request failed after retries")
 
         content = _extract_content(data)
         llm_response = LLMResponse(content=content, model=request.model, raw=data)

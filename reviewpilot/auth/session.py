@@ -19,7 +19,7 @@ GITHUB_TOKEN_FIELD = "github_access_token"
 
 def get_session_serializer() -> URLSafeSerializer:
     settings = get_settings()
-    return URLSafeSerializer(settings.app_secret_key, salt="reviewpilot-session")
+    return URLSafeSerializer(settings.session_signing_key, salt="reviewpilot-session")
 
 
 def dump_session(data: dict[str, Any]) -> str:
@@ -71,5 +71,5 @@ def get_github_token_from_request(request: Request) -> str | None:
 
 def _fernet() -> Fernet:
     settings = get_settings()
-    key = base64.urlsafe_b64encode(sha256(settings.app_secret_key.encode("utf-8")).digest())
+    key = base64.urlsafe_b64encode(sha256(settings.session_encryption_key.encode("utf-8")).digest())
     return Fernet(key)

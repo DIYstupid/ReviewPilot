@@ -23,6 +23,10 @@ from reviewpilot.config import get_settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _secure_cookie() -> bool:
+    return get_settings().app_env != "development"
+
+
 @router.get("/github/login")
 async def github_login(request: Request) -> RedirectResponse:
     config = _github_oauth_config(request)
@@ -37,6 +41,7 @@ async def github_login(request: Request) -> RedirectResponse:
         max_age=600,
         httponly=True,
         samesite="lax",
+        secure=_secure_cookie(),
     )
     return response
 
@@ -70,6 +75,7 @@ async def github_callback(
         ),
         httponly=True,
         samesite="lax",
+        secure=_secure_cookie(),
     )
     response.delete_cookie(OAUTH_STATE_COOKIE_NAME)
     return response

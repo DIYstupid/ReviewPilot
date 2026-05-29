@@ -15,6 +15,7 @@ from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
 from reviewpilot.analyzer.summary import SummaryResult, generate_summary
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import build_review_context
+from reviewpilot.logging_config import job_logger
 from reviewpilot.db import (
     clear_all_jobs,
     get_event_records,
@@ -384,49 +385,69 @@ async def _create_review_job_from_snapshot(
     record_events: bool,
     static_validator: StaticValidator | None,
 ) -> ReviewJob:
+    log = job_logger(job_id)
+
     _record_status(job_id, "building_context", record_events)
+    log.info("building context | files={}", len(file_contents or {}))
     try:
         context = build_review_context(snapshot, file_contents=file_contents)
     except Exception as exc:
         _record_error(job_id, "building_context", str(exc), record_events)
+        log.warning("context build failed, falling back: {}", exc)
         context = build_review_context(snapshot, file_contents={})
 
     pipeline_clients = clients or ReviewPipelineClients()
+    log.info("context built | hunks={} symbols={}", len(context.hunks), len(context.symbols))
 
     _record_status(job_id, "analyzing_summary", record_events)
+    log.info("generating summary")
     try:
         summary = await generate_summary(context, client=pipeline_clients.summary)
+        log.info("summary complete | cached={}", summary.cached)
     except Exception as exc:
         _record_error(job_id, "summary", str(exc), record_events)
+        log.warning("summary failed, using fallback: {}", exc)
         summary = SummaryResult(content="Summary generation failed.")
 
     _record_status(job_id, "analyzing_risks", record_events)
+    log.info("generating risks")
     try:
         risks = await generate_risks(context, client=pipeline_clients.risk)
+        log.info("risks complete | findings={} cached={}", len(risks.risks), risks.cached)
     except Exception as exc:
         _record_error(job_id, "risks", str(exc), record_events)
+        log.warning("risk analysis failed: {}", exc)
         risks = RiskAnalysisResult(risks=[])
 
     _record_status(job_id, "analyzing_lines", record_events)
+    log.info("generating inline reviews")
     try:
         inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
+        log.info("line reviews complete | findings={}", len(inline_reviews.inline_reviews))
     except Exception as exc:
         _record_error(job_id, "inline_reviews", str(exc), record_events)
+        log.warning("inline review failed: {}", exc)
         inline_reviews = LineReviewResult(inline_reviews=[])
 
     _record_status(job_id, "validating_static", record_events)
+    log.info("running static validators")
     try:
         static_findings = await static_validator(file_contents or {}) if static_validator else []
+        log.info("static validation complete | findings={}", len(static_findings))
     except Exception as exc:
         _record_error(job_id, "static_validation", str(exc), record_events)
+        log.warning("static validation failed: {}", exc)
         static_findings = []
 
     _record_status(job_id, "postprocessing", record_events)
+    log.info("building report")
     report = build_review_report(
         summary=summary.content,
         risks=risks.risks + static_findings,
         inline_reviews=inline_reviews.inline_reviews,
     )
+    log.info("review complete | risks={} inline={} conclusion={}",
+             len(report.risks), len(report.inline_reviews), report.merge_conclusion)
     if record_events:
         return job_store.complete(job_id, report)
 

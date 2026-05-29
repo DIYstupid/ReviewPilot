@@ -16,7 +16,10 @@ from reviewpilot.main import app
 
 
 class FakeSettings:
+    app_env = "development"
     app_secret_key = "test-secret"
+    session_signing_key = "test-signing-key"
+    session_encryption_key = "test-encrypt-key"
     github_client_id = "client-id"
     github_client_secret = "client-secret"
 
