@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.cache/
+*.db
+*.sqlite
+*.sqlite3
+dist/
+build/
+*.egg-info/
+
+# Local planning file currently contains secrets; keep it out of GitHub until sanitized.
+ReviewPilot-Plan.md

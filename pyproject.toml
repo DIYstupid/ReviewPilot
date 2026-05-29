@@ -1,0 +1,47 @@
+[project]
+name = "reviewpilot"
+version = "0.1.0"
+description = "AI code review assistant for GitHub pull requests."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "authlib",
+    "cryptography",
+    "diskcache",
+    "fastapi",
+    "gitpython",
+    "httpx",
+    "itsdangerous",
+    "jinja2",
+    "loguru",
+    "pydantic>=2",
+    "pydantic-settings",
+    "ruff",
+    "sse-starlette",
+    "sqlmodel",
+    "tree-sitter",
+    "tree-sitter-language-pack",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+]
+semgrep = [
+    "semgrep",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

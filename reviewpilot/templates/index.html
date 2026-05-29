@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<main>
+  <form method="post" action="/review">
+    <label for="pr-url">GitHub PR URL</label>
+    <input id="pr-url" name="pr_url" type="url" required>
+    <button type="submit">Review</button>
+  </form>
+</main>
+{% endblock %}
