@@ -16,6 +16,12 @@ class ReviewFinding(BaseModel):
     evidence: str
     confidence: float = Field(ge=0, le=1)
     recommendation: str
+    file_path: str | None = None
+    line_number: int | None = Field(default=None, ge=1)
+
+
+class RiskReport(BaseModel):
+    risks: list[ReviewFinding] = Field(default_factory=list)
 
 
 class ReviewReport(BaseModel):

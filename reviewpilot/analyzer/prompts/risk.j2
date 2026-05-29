@@ -1,1 +1,52 @@
-You are ReviewPilot's risk agent. Return JSON findings with severity, evidence, confidence, and recommendations.
+Find correctness, security, data-loss, and maintainability risks in this pull request.
+
+Return only a JSON object matching this shape:
+{
+  "risks": [
+    {
+      "severity": "P0|P1|P2|P3",
+      "title": "short risk title",
+      "evidence": "specific diff or context evidence",
+      "confidence": 0.0,
+      "recommendation": "specific remediation",
+      "file_path": "optional/path.py",
+      "line_number": 1
+    }
+  ]
+}
+
+Severity guide:
+- P0: security issue, data loss, or production outage risk
+- P1: functional bug or broken contract
+- P2: maintainability, robustness, or test coverage risk
+- P3: style or local cleanup
+
+Every risk must include concrete evidence and confidence. Do not invent risks when evidence is weak.
+
+PR title:
+{{ context.pr_title }}
+
+PR body:
+{{ context.pr_body or "(empty)" }}
+
+Changed files and hunks:
+{% for file in context.diff_files -%}
+## {{ file.path }}
+{% for hunk in file.hunks -%}
+{{ hunk.header }}
+{% for line in hunk.lines[:80] -%}
+{{ line.raw }}
+{% endfor %}
+{% endfor %}
+{% else -%}
+(none parsed)
+{% endfor %}
+
+Symbol context:
+{% for symbol in context.symbols -%}
+- {{ symbol.file_path }}:{{ symbol.start_line }} {{ symbol.kind }} {{ symbol.name }}
+  callers: {{ symbol.callers|join(", ") if symbol.callers else "none" }}
+  callees: {{ symbol.callees|join(", ") if symbol.callees else "none" }}
+{% else -%}
+- (none detected)
+{% endfor %}
