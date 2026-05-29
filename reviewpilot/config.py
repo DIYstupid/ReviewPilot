@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from functools import lru_cache
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,9 +30,19 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 
-@lru_cache
+_settings_cache: Settings | None = None
+
+
 def get_settings() -> Settings:
-    return Settings()
+    global _settings_cache
+    if _settings_cache is None:
+        _settings_cache = Settings()
+    return _settings_cache
+
+
+def clear_settings_cache() -> None:
+    global _settings_cache
+    _settings_cache = None
 
 
 def validate_production_settings() -> None:

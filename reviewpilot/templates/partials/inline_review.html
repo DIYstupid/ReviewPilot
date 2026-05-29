@@ -2,7 +2,7 @@
   <header class="finding-header">
     <span class="severity-badge">{{ review.severity.value }}</span>
     <h3>{{ review.title }}</h3>
-    <span class="confidence-badge">{{ (review.confidence * 100) | round(0) | int }}%</span>
+    <span class="confidence-badge {{ review.confidence | confidence_level }}">{{ (review.confidence * 100) | round(0) | int }}%</span>
   </header>
   {% if review.file_path %}
   <p class="location break-anywhere">

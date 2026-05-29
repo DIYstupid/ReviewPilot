@@ -7,7 +7,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pydantic import ValidationError
 
 from reviewpilot.analyzer.llm import ChatMessage, ChatCompletionClient, LLMRequest
-from reviewpilot.analyzer.schemas import InlineReviewReport, ReviewFinding
+from reviewpilot.analyzer.schemas import InlineReviewReport, ReviewFinding, Severity
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import ReviewContext
 from reviewpilot.context.diff import DiffHunk
@@ -71,6 +71,7 @@ async def generate_inline_reviews(
         return LineReviewResult(inline_reviews=[])
 
     settings = get_settings()
+    total_hunks = len(context.hunks)
     hunks = context.hunks[:max_hunks]
     sem = asyncio.Semaphore(concurrency)
 
@@ -103,6 +104,19 @@ async def generate_inline_reviews(
         cached = cached or resp_cached
         if resp_model and resp_model != settings.deepseek_model:
             model = resp_model
+
+    skipped = total_hunks - max_hunks
+    if skipped > 0:
+        findings.append(
+            ReviewFinding(
+                severity=Severity.p3,
+                title=f"Review budget exceeded: {skipped} hunk(s) not reviewed",
+                evidence=f"Only {max_hunks} of {total_hunks} diff hunks were reviewed. "
+                f"The remaining {skipped} hunk(s) were skipped due to review budget limits.",
+                confidence=1.0,
+                recommendation="Re-run with a higher max_hunks budget or review the remaining hunks manually.",
+            )
+        )
 
     return LineReviewResult(
         inline_reviews=collect_inline_reviews(findings),

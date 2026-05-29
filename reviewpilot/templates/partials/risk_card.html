@@ -2,7 +2,7 @@
   <header class="finding-header">
     <span class="severity-badge">{{ risk.severity.value }}</span>
     <h3>{{ risk.title }}</h3>
-    <span class="confidence-badge">{{ (risk.confidence * 100) | round(0) | int }}%</span>
+    <span class="confidence-badge {{ risk.confidence | confidence_level }}">{{ (risk.confidence * 100) | round(0) | int }}%</span>
   </header>
   {% if risk.file_path %}
   <p class="location break-anywhere">

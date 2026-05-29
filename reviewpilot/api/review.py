@@ -23,6 +23,17 @@ templates = Jinja2Templates(directory="reviewpilot/templates")
 templates.env.filters["markdown"] = render_markdown
 
 
+def _confidence_level_css(confidence: float) -> str:
+    if confidence >= 0.8:
+        return "confidence-high"
+    if confidence >= 0.5:
+        return "confidence-medium"
+    return "confidence-low"
+
+
+templates.env.filters["confidence_level"] = _confidence_level_css
+
+
 @router.get("/")
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {})

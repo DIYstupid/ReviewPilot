@@ -390,6 +390,21 @@ input {
   color: #2f7d32;
 }
 
+.confidence-badge.confidence-high {
+  background: #e7f6ec;
+  color: #1f6b3a;
+}
+
+.confidence-badge.confidence-medium {
+  background: #fff5e6;
+  color: #9b6318;
+}
+
+.confidence-badge.confidence-low {
+  background: #fdecea;
+  color: #a12418;
+}
+
 .location {
   margin: 10px 0 0;
   color: #52616f;

@@ -113,9 +113,15 @@
     return form;
   }
 
+  function confidenceLevel(pct) {
+    if (pct >= 80) return "confidence-high";
+    if (pct >= 50) return "confidence-medium";
+    return "confidence-low";
+  }
+
   function findingCard(finding, jobId) {
     const severity = text(finding.severity, "P3");
-    const confidence = Math.round(Number(finding.confidence || 0) * 100);
+    const confidencePct = Math.round(Number(finding.confidence || 0) * 100);
     const location = finding.file_path
       ? `${finding.file_path}${finding.line_number ? `:${finding.line_number}` : ""}`
       : "";
@@ -123,12 +129,15 @@
     const header = node("header", { className: "finding-header" }, [
       node("span", { className: "severity-badge", text: severity }),
       node("h3", { text: text(finding.title, "Finding") }),
-      node("span", { className: "confidence-badge", text: `${confidence}%` }),
+      node("span", {
+        className: `confidence-badge ${confidenceLevel(confidencePct)}`,
+        text: `${confidencePct}%`,
+      }),
     ]);
 
     const body = node("dl", { className: "finding-body" }, [
       node("dt", { text: "Evidence" }),
-      node("dd", { text: text(finding.evidence, "No evidence provided.") }),
+      node("dd", { html: renderInlineMarkdown(text(finding.evidence, "No evidence provided.")) }),
       node("dt", { text: "Recommendation" }),
       node("dd", { text: text(finding.recommendation, "No recommendation provided.") }),
     ]);
@@ -314,6 +323,12 @@
     setHidden(elements.loading, true);
     setHidden(elements.error, true);
     setHidden(elements.report, false);
+
+    if (window.hljs) {
+      elements.report.querySelectorAll("pre code").forEach(function (block) {
+        window.hljs.highlightElement(block);
+      });
+    }
   }
 
   function updateStatus(status, elements) {
