@@ -13,6 +13,23 @@ D:\mincondapy39\envs\agent\python.exe -m uvicorn reviewpilot.main:app --reload
 
 Copy `.env.example` to `.env` and fill in secrets before using live GitHub or LLM integrations.
 
+By default the web review flow runs in offline mode, so local tests and UI checks do not need API keys.
+To enable live PR fetching and DeepSeek analysis, set:
+
+```env
+REVIEW_FETCH_MODE=github
+REVIEW_LLM_PROVIDER=deepseek
+GITHUB_PAT=github_pat_or_token_here
+DEEPSEEK_API_KEY=deepseek_key_here
+```
+
+Supported modes:
+
+| Variable | Default | Values |
+| --- | --- | --- |
+| `REVIEW_FETCH_MODE` | `offline` | `offline`, `github` |
+| `REVIEW_LLM_PROVIDER` | `offline` | `offline`, `deepseek` |
+
 ## CLI
 
 Fetch a pull request snapshot:
