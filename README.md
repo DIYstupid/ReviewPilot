@@ -12,3 +12,17 @@ uv run uvicorn reviewpilot.main:app --reload
 ```
 
 Copy `.env.example` to `.env` and fill in secrets before using live GitHub or LLM integrations.
+
+## CLI
+
+Fetch a pull request snapshot:
+
+```powershell
+uv run reviewpilot fetch https://github.com/OWNER/REPO/pull/123
+```
+
+Print only the unified diff:
+
+```powershell
+uv run reviewpilot fetch https://github.com/OWNER/REPO/pull/123 --format diff
+```
