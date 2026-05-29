@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport, Severity
 from reviewpilot.post.confidence import with_static_validation_weight
 from reviewpilot.post.merge import merge_findings

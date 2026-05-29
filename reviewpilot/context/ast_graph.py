@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from tree_sitter import Node, Parser
+from tree_sitter_language_pack import get_parser
 
 from reviewpilot.context.diff import DiffHunk, DiffLineKind
 
@@ -26,6 +30,41 @@ class SymbolDefinition:
     callees: list[str] = field(default_factory=list)
 
 
+_SUFFIX_LANGUAGE = {
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+}
+
+_DEF_KIND_MAP: dict[str, str] = {
+    "function_definition": "function",
+    "class_definition": "class",
+    "function_declaration": "function",
+    "class_declaration": "class",
+    "method_definition": "method",
+    "interface_declaration": "interface",
+    "type_alias_declaration": "type",
+    "type_declaration": "type",
+}
+
+_CALL_NODE_TYPES = {"call", "call_expression"}
+
+_parser_cache: dict[str, Parser] = {}
+
+
+def _get_cached_parser(language: str) -> Parser:
+    if language not in _parser_cache:
+        parser = get_parser(language)
+        parser.timeout_ms = 2000
+        _parser_cache[language] = parser
+    return _parser_cache[language]
+
+
 def build_symbol_contexts(
     file_contents: dict[str, str],
     hunks: list[DiffHunk],
@@ -35,14 +74,16 @@ def build_symbol_contexts(
     seen: set[tuple[str, str, int]] = set()
 
     for file_path, changed_lines in changed_lines_by_file.items():
-        if not file_path.endswith(".py"):
+        language = _language_for_file(file_path)
+        if language is None:
             continue
 
         content = file_contents.get(file_path)
         if content is None:
             continue
 
-        for definition in extract_python_symbols(content):
+        definitions = _extract_symbols(content, language)
+        for definition in definitions:
             if not any(definition.start_line <= line <= definition.end_line for line in changed_lines):
                 continue
 
@@ -81,12 +122,24 @@ def build_symbol_contexts(
 def _build_caller_index(file_contents: dict[str, str]) -> dict[str, list[str]]:
     index: dict[str, set[str]] = {}
     for file_path, content in file_contents.items():
-        if not file_path.endswith(".py"):
+        language = _language_for_file(file_path)
+        if language is None:
             continue
-        for definition in extract_python_symbols(content):
+        for definition in _extract_symbols(content, language):
             for callee in definition.callees:
                 index.setdefault(callee, set()).add(definition.name)
     return {name: sorted(callers) for name, callers in index.items()}
+
+
+def _language_for_file(file_path: str) -> str | None:
+    suffix = Path(file_path).suffix.lower()
+    return _SUFFIX_LANGUAGE.get(suffix)
+
+
+def _extract_symbols(content: str, language: str) -> list[SymbolDefinition]:
+    if language == "python":
+        return extract_python_symbols(content)
+    return _extract_tree_sitter_symbols(content, language)
 
 
 def extract_python_symbols(content: str) -> list[SymbolDefinition]:
@@ -118,7 +171,65 @@ def extract_python_symbols(content: str) -> list[SymbolDefinition]:
                 )
             )
 
-    return sorted(definitions, key=lambda definition: (definition.start_line, definition.name))
+    return sorted(definitions, key=lambda d: (d.start_line, d.name))
+
+
+def _extract_tree_sitter_symbols(content: str, language: str) -> list[SymbolDefinition]:
+    parser = _get_cached_parser(language)
+    tree = parser.parse(content.encode("utf-8"))
+    definitions: list[SymbolDefinition] = []
+
+    def walk(node: Node) -> None:
+        kind = _DEF_KIND_MAP.get(node.type)
+        if kind:
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                name = name_node.text.decode("utf-8")
+                definitions.append(
+                    SymbolDefinition(
+                        name=name,
+                        kind=kind,
+                        start_line=node.start_point[0] + 1,
+                        end_line=node.end_point[0] + 1,
+                        callees=_collect_callees(node),
+                    )
+                )
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
+    return sorted(definitions, key=lambda d: (d.start_line, d.name))
+
+
+def _collect_callees(node: Node) -> list[str]:
+    names: set[str] = set()
+
+    def walk(n: Node) -> None:
+        if n.type in _CALL_NODE_TYPES:
+            func_node = n.child_by_field_name("function")
+            if func_node is not None:
+                name = _call_name_from_node(func_node)
+                if name:
+                    names.add(name)
+        for child in n.children:
+            walk(child)
+
+    walk(node)
+    return sorted(names)
+
+
+def _call_name_from_node(node: Node) -> str | None:
+    if node.type == "identifier":
+        return node.text.decode("utf-8")
+    if node.type in {"attribute", "member_expression"}:
+        obj = node.child_by_field_name("object")
+        prop = node.child_by_field_name("property") or node.child_by_field_name("attribute")
+        owner = _call_name_from_node(obj) if obj else None
+        attr = prop.text.decode("utf-8") if prop else None
+        if owner and attr:
+            return f"{owner}.{attr}"
+        return attr
+    return None
 
 
 def _changed_lines_by_file(hunks: list[DiffHunk]) -> dict[str, set[int]]:

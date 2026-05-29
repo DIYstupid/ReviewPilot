@@ -31,6 +31,7 @@ from reviewpilot.fetcher.github_api import (
 )
 from reviewpilot.post.report import build_review_report
 from reviewpilot.validator.ruff_runner import run_ruff_validator
+from reviewpilot.validator.semgrep_runner import run_semgrep_validator
 
 
 SnapshotFetcher = Callable[[PullRequestRef], Awaitable[PullRequestSnapshot]]
@@ -462,6 +463,16 @@ def build_static_validator(provider: str | None = None) -> StaticValidator | Non
         return None
     if static_provider == "ruff":
         return run_ruff_validator
+    if static_provider == "semgrep":
+        return run_semgrep_validator
+    if static_provider == "ruff+semgrep":
+
+        async def combined(file_contents: dict[str, str]) -> list[ReviewFinding]:
+            ruff_findings = await run_ruff_validator(file_contents)
+            semgrep_findings = await run_semgrep_validator(file_contents)
+            return ruff_findings + semgrep_findings
+
+        return combined
     raise ReviewConfigurationError(f"Unsupported review_static_validator: {provider}")
 
 

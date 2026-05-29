@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from reviewpilot.analyzer.schemas import ReviewFinding, Severity

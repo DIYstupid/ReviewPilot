@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from reviewpilot.context.ast_graph import SymbolContext, build_symbol_contexts

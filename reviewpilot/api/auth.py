@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from secrets import token_urlsafe
 
 from fastapi import APIRouter, HTTPException, Request, status
