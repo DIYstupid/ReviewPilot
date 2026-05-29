@@ -4,10 +4,9 @@ This document is safe to commit. It intentionally excludes local secrets and API
 
 ## Current State
 
-- Branch worktree is clean after the latest commit.
-- Latest commit: `7b38513 feat: 支持抓取PR文件内容并启用ruff`
-- Test suite: 65 tests were passing after the latest implementation phase.
-- The project now supports an offline-safe default flow and a configurable live GitHub + DeepSeek + ruff flow.
+- Latest implementation commit before this handoff update: `6a2cedc`.
+- Test suite: 85 tests were passing after the latest implementation phase.
+- The project now supports an offline-safe default flow, live GitHub + DeepSeek + ruff mode, OAuth login, live SSE result rendering, local PR checkout helpers, and feedback persistence.
 
 ## Local Rules
 
@@ -16,6 +15,7 @@ This document is safe to commit. It intentionally excludes local secrets and API
 - Do not use `uv`; dependencies are pinned in `requirements*.txt`.
 - Do not commit `.env` or `ReviewPilot-Plan.md`.
 - `ReviewPilot-Plan.md` contains local secret material and is intentionally ignored.
+- A local `.gitignore` change currently ignores `docs/session-handoff.md`; verify before committing if you want this file tracked in future updates.
 - Use this Git form on Windows if needed:
 
 ```powershell
@@ -52,7 +52,20 @@ GITHUB_PAT=...
 DEEPSEEK_API_KEY=...
 ```
 
-`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are not required yet because OAuth is not complete.
+OAuth login mode:
+
+```env
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+APP_SECRET_KEY=replace-with-local-random-secret
+```
+
+GitHub OAuth App settings:
+
+```text
+Homepage URL: http://localhost:8000
+Callback URL: http://localhost:8000/auth/github/callback
+```
 
 ## Completed Capabilities
 
@@ -82,6 +95,7 @@ DEEPSEEK_API_KEY=...
   - injectable snapshot fetcher
   - injectable LLM clients
   - injectable static validator
+  - OAuth token handoff from encrypted/signed session cookie to GitHub jobs
   - configured offline/GitHub and offline/DeepSeek paths
   - in-memory pending/running/complete/failed job lifecycle
   - event log for SSE
@@ -89,8 +103,26 @@ DEEPSEEK_API_KEY=...
   - `POST /review`
   - `GET /review/{job_id}`
   - `GET /review/{job_id}/stream`
+  - `GET /auth/github/login`
+  - `GET /auth/github/callback`
+  - `POST /feedback`
   - background review execution
   - SSE status/report/error events
+- Frontend:
+  - usable index form
+  - live SSE status timeline
+  - server-rendered and JS-rendered review reports
+  - summary, merge conclusion, risk cards, inline findings, error state
+  - finding feedback buttons
+- Feedback persistence:
+  - SQLite `FeedbackRecord`
+  - form and JSON payload support
+  - feedback read helper for tests/future usage
+- Git local utility:
+  - checkout directory builder
+  - authenticated GitHub HTTPS URL builder
+  - shallow clone/fetch/checkout for PR head refs
+  - token redaction in git error messages
 - Ruff static validation:
   - ruff JSON runner
   - file contents temp-dir execution
@@ -101,7 +133,12 @@ DEEPSEEK_API_KEY=...
 
 - `reviewpilot/review_service.py`
 - `reviewpilot/api/review.py`
+- `reviewpilot/api/auth.py`
+- `reviewpilot/api/feedback.py`
+- `reviewpilot/auth/github_oauth.py`
+- `reviewpilot/auth/session.py`
 - `reviewpilot/fetcher/github_api.py`
+- `reviewpilot/fetcher/git_local.py`
 - `reviewpilot/validator/ruff_runner.py`
 - `reviewpilot/context/builder.py`
 - `reviewpilot/context/diff.py`
@@ -112,26 +149,32 @@ DEEPSEEK_API_KEY=...
 - `reviewpilot/analyzer/risk.py`
 - `reviewpilot/analyzer/line_review.py`
 - `reviewpilot/post/report.py`
+- `reviewpilot/static/js/htmx-sse.js`
 - `tests/test_review_service.py`
 - `tests/test_review_api.py`
+- `tests/test_auth_api.py`
+- `tests/test_feedback_api.py`
 - `tests/test_github_api.py`
+- `tests/test_git_local.py`
 - `tests/test_ruff_runner.py`
 
 ## Current Flow
 
 1. `POST /review` parses `pr_url`.
-2. The API creates a pending `ReviewJob`.
-3. FastAPI `BackgroundTasks` runs `run_configured_review_job`.
-4. The configured pipeline chooses:
+2. The API reads an OAuth GitHub token from the encrypted/signed session cookie if available.
+3. The API creates a pending `ReviewJob`.
+4. FastAPI `BackgroundTasks` runs `run_configured_review_job`.
+5. The configured pipeline chooses:
    - offline or GitHub fetch
    - offline or DeepSeek LLM
    - no static validator or ruff
-5. GitHub mode fetches PR snapshot and changed file contents.
-6. Context is built from metadata, diff, file contents, and Python symbols.
-7. Summary, Risk, and LineReview agents run.
-8. Static validator findings are merged into risks.
-9. Post-processing builds `ReviewReport`.
-10. SSE emits events from the job event log.
+6. GitHub mode fetches PR snapshot and changed file contents, using OAuth token first and `GITHUB_PAT` as fallback.
+7. Context is built from metadata, diff, file contents, and Python symbols.
+8. Summary, Risk, and LineReview agents run.
+9. Static validator findings are merged into risks.
+10. Post-processing builds `ReviewReport`.
+11. SSE emits events from the job event log.
+12. The result page renders progress and final report; feedback buttons persist to SQLite.
 
 ## SSE Events
 
@@ -156,12 +199,9 @@ Other event names:
 
 ## Known Gaps
 
-- The result page is still minimal; HTMX/SSE rendering is not feature-complete.
-- `reviewpilot/static/js/htmx-sse.js` is still a placeholder.
 - Semgrep is still only a command placeholder.
-- SQLite persistence is not implemented.
-- Feedback persistence is not implemented.
-- GitHub OAuth/private repo flow is not complete.
+- SQLite persistence is not implemented for jobs/reports; only feedback is persisted.
+- GitHub OAuth exists, but there is no logged-in user profile page or token refresh handling.
 - GitHub PR comment posting is not implemented.
 - CLI only fetches PR snapshots/diffs; full CLI review is not implemented.
 - Qwen provider is configured but not selected in the pipeline.
@@ -170,16 +210,10 @@ Other event names:
 
 ## Suggested Next Stage
 
-Build the HTMX/SSE result page:
+Implement SQLite-backed job/report persistence:
 
-- Replace the placeholder SSE asset or add the real htmx-sse integration.
-- Render live status updates.
-- Render the final report into:
-  - summary
-  - merge conclusion
-  - risk cards
-  - inline findings
-  - error state
-- Add API/template tests for pending, complete, and failed jobs.
+- Store review job status, events, errors, and final reports outside memory.
+- Rehydrate `GET /review/{job_id}` and SSE event logs after process restart.
+- Add tests for pending/running/complete/failed persisted jobs.
 
-Alternative next stage: implement SQLite-backed job/report persistence before UI polish.
+Alternative next stage: implement full CLI review output or GitHub PR comment posting.
