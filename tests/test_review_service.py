@@ -1,7 +1,40 @@
 import pytest
 
-from reviewpilot.review_service import create_offline_review_job, job_store, stable_job_id
-from reviewpilot.fetcher.github_api import PullRequestRef
+from reviewpilot.analyzer.llm import LLMRequest, LLMResponse
+from reviewpilot.review_service import (
+    ReviewPipelineClients,
+    create_github_review_job,
+    create_offline_review_job,
+    create_review_job,
+    job_store,
+    stable_job_id,
+)
+from reviewpilot.fetcher.github_api import (
+    ChangedFile,
+    PullRequestMetadata,
+    PullRequestRef,
+    PullRequestSnapshot,
+)
+
+
+class FakeSnapshotFetcher:
+    def __init__(self, snapshot: PullRequestSnapshot) -> None:
+        self.snapshot = snapshot
+        self.ref: PullRequestRef | None = None
+
+    async def __call__(self, ref: PullRequestRef) -> PullRequestSnapshot:
+        self.ref = ref
+        return self.snapshot
+
+
+class FakeClient:
+    def __init__(self, responses: list[LLMResponse]) -> None:
+        self.responses = responses
+        self.requests: list[LLMRequest] = []
+
+    async def complete(self, request: LLMRequest, use_cache: bool = True) -> LLMResponse:
+        self.requests.append(request)
+        return self.responses.pop(0)
 
 
 def test_stable_job_id_is_deterministic() -> None:
@@ -21,3 +54,115 @@ async def test_create_offline_review_job_stores_complete_report() -> None:
     assert job.report is not None
     assert "owner/repo#1" in job.report.summary
     assert job_store.get(job.job_id) == job
+
+
+@pytest.mark.asyncio
+async def test_create_review_job_uses_injected_snapshot_and_clients() -> None:
+    job_store.clear()
+    snapshot = _make_snapshot()
+    fetcher = FakeSnapshotFetcher(snapshot)
+    summary_client = FakeClient([LLMResponse(content="Model summary", model="deepseek-chat")])
+    risk_client = FakeClient(
+        [
+            LLMResponse(
+                content="""{"risks":[{"severity":"P1","title":"Risk","evidence":"diff","confidence":0.8,"recommendation":"Fix","file_path":"app.py","line_number":2}]}""",
+                model="deepseek-chat",
+            )
+        ]
+    )
+    line_client = FakeClient(
+        [
+            LLMResponse(
+                content="""{"inline_reviews":[{"severity":"P2","title":"Inline","evidence":"line","confidence":0.7,"recommendation":"Clean up","file_path":"app.py","line_number":2}]}""",
+                model="deepseek-chat",
+            )
+        ]
+    )
+
+    job = await create_review_job(
+        "https://github.com/owner/repo/pull/2",
+        snapshot_fetcher=fetcher,
+        clients=ReviewPipelineClients(
+            summary=summary_client,
+            risk=risk_client,
+            line_review=line_client,
+        ),
+        file_contents={"app.py": "def changed():\n    return helper()\n"},
+    )
+
+    assert fetcher.ref == PullRequestRef(owner="owner", repo="repo", number=2)
+    assert job.status == "complete"
+    assert job.report is not None
+    assert job.report.summary == "Model summary"
+    assert job.report.risks[0].title == "Risk"
+    assert job.report.inline_reviews[0].title == "Inline"
+    assert summary_client.requests[0].metadata == {"agent": "summary"}
+    assert risk_client.requests[0].metadata == {"agent": "risk"}
+    assert line_client.requests[0].metadata["agent"] == "line_review"
+    assert job_store.get(job.job_id) == job
+
+
+@pytest.mark.asyncio
+async def test_create_github_review_job_uses_configured_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        github_pat = "test-token"
+
+    class FakeGitHubClient:
+        token: str | None = None
+
+        def __init__(self, token: str | None = None) -> None:
+            FakeGitHubClient.token = token
+
+        async def fetch_pull_request(self, ref: PullRequestRef) -> PullRequestSnapshot:
+            return _make_snapshot(ref)
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("reviewpilot.review_service.GitHubClient", FakeGitHubClient)
+
+    job = await create_github_review_job("https://github.com/owner/repo/pull/2")
+
+    assert FakeGitHubClient.token == "test-token"
+    assert job.status == "complete"
+    assert job.report is not None
+    assert "Fix parser" in job.report.summary
+
+
+def _make_snapshot(ref: PullRequestRef | None = None) -> PullRequestSnapshot:
+    pr_ref = ref or PullRequestRef(owner="owner", repo="repo", number=2)
+    return PullRequestSnapshot(
+        ref=pr_ref,
+        metadata=PullRequestMetadata(
+            title="Fix parser",
+            body="Handle changed line numbers",
+            state="open",
+            draft=False,
+            html_url=f"https://github.com/{pr_ref.owner}/{pr_ref.repo}/pull/{pr_ref.number}",
+            base_ref="main",
+            head_ref="fix-parser",
+            author="alice",
+            changed_files=1,
+            additions=1,
+            deletions=1,
+        ),
+        commits=["abc123"],
+        files=[
+            ChangedFile(
+                filename="app.py",
+                status="modified",
+                additions=1,
+                deletions=1,
+                changes=2,
+                patch="@@ -1 +1 @@\n-a\n+b\n",
+            )
+        ],
+        diff="""diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+ def changed():
+-    return 1
++    return helper()
+""",
+    )
