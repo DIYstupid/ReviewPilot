@@ -5,23 +5,23 @@ description = "AI code review assistant for GitHub pull requests."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "authlib",
-    "cryptography",
-    "diskcache",
-    "fastapi",
-    "gitpython",
-    "httpx",
-    "itsdangerous",
-    "jinja2",
-    "loguru",
-    "pydantic>=2",
-    "pydantic-settings",
-    "ruff",
-    "sse-starlette",
-    "sqlmodel",
-    "tree-sitter",
-    "tree-sitter-language-pack",
-    "uvicorn[standard]",
+    "authlib==1.7.2",
+    "cryptography==46.0.6",
+    "diskcache==5.6.3",
+    "fastapi==0.136.1",
+    "gitpython==3.1.46",
+    "httpx==0.28.1",
+    "itsdangerous==2.2.0",
+    "jinja2==3.1.6",
+    "loguru==0.7.3",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.14.0",
+    "ruff==0.15.15",
+    "sse-starlette==3.4.4",
+    "sqlmodel==0.0.38",
+    "tree-sitter==0.25.2",
+    "tree-sitter-language-pack==1.8.1",
+    "uvicorn[standard]==0.46.0",
 ]
 
 [project.scripts]
@@ -29,12 +29,17 @@ reviewpilot = "reviewpilot.cli:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-asyncio",
-    "respx",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
+    "respx==0.23.1",
 ]
 semgrep = [
-    "semgrep",
+    "semgrep==1.164.0",
+    "opentelemetry-api==1.37.0",
+    "opentelemetry-sdk==1.37.0",
+    "opentelemetry-exporter-otlp-proto-common==1.37.0",
+    "opentelemetry-proto==1.37.0",
+    "opentelemetry-semantic-conventions==0.58b0",
 ]
 
 [build-system]
