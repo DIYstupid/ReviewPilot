@@ -77,7 +77,40 @@
     element.classList.toggle("is-hidden", hidden);
   }
 
-  function findingCard(finding) {
+  function hiddenInput(name, value) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    return input;
+  }
+
+  function feedbackForm(finding, jobId) {
+    const form = node("form", { className: "feedback-form" });
+    form.method = "post";
+    form.action = "/feedback";
+    form.setAttribute("data-feedback-form", "");
+    form.append(
+      hiddenInput("job_id", jobId),
+      hiddenInput(
+        "finding_key",
+        `${text(finding.file_path)}:${text(finding.line_number)}:${text(finding.title, "Finding")}`,
+      ),
+      node("button", { text: "Useful" }),
+      node("button", { text: "Not useful" }),
+      node("span", { text: "" }),
+    );
+    form.querySelectorAll("button")[0].type = "submit";
+    form.querySelectorAll("button")[0].name = "vote";
+    form.querySelectorAll("button")[0].value = "up";
+    form.querySelectorAll("button")[1].type = "submit";
+    form.querySelectorAll("button")[1].name = "vote";
+    form.querySelectorAll("button")[1].value = "down";
+    form.querySelector("span").setAttribute("data-feedback-status", "");
+    return form;
+  }
+
+  function findingCard(finding, jobId) {
     const severity = text(finding.severity, "P3");
     const confidence = Math.round(Number(finding.confidence || 0) * 100);
     const location = finding.file_path
@@ -102,6 +135,9 @@
       children.push(node("p", { className: "location break-anywhere", text: location }));
     }
     children.push(body);
+    if (jobId) {
+      children.push(feedbackForm(finding, jobId));
+    }
 
     return node(
       "article",
@@ -144,7 +180,7 @@
     const riskList = node("div", { className: "finding-list" });
     if (risks.length) {
       for (const finding of risks) {
-        riskList.append(findingCard(finding));
+        riskList.append(findingCard(finding, elements.jobId));
       }
     } else {
       riskList.append(emptyState("No risk findings."));
@@ -155,7 +191,7 @@
     const inlineList = node("div", { className: "finding-list" });
     if (inlineReviews.length) {
       for (const finding of inlineReviews) {
-        inlineList.append(findingCard(finding));
+        inlineList.append(findingCard(finding, elements.jobId));
       }
     } else {
       inlineList.append(emptyState("No inline findings."));
@@ -221,6 +257,7 @@
       errorMessage: document.querySelector("[data-error-message]"),
       pill: document.querySelector("[data-status-pill]"),
       statusText: document.querySelector("[data-status-text]"),
+      jobId: root.getAttribute("data-job-id") || "",
     };
 
     updateStatus(root.getAttribute("data-current-status") || "pending", elements);
@@ -257,5 +294,44 @@
     });
   }
 
+  function initFeedbackForms() {
+    document.addEventListener("submit", function (event) {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || !form.matches("[data-feedback-form]")) {
+        return;
+      }
+
+      event.preventDefault();
+      const status = form.querySelector("[data-feedback-status]");
+      const formData = new FormData(form);
+      if (event.submitter && event.submitter.name) {
+        formData.set(event.submitter.name, event.submitter.value);
+      }
+
+      fetch(form.action, {
+        method: "POST",
+        body: new URLSearchParams(formData),
+        headers: { Accept: "application/json" },
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("Feedback failed");
+          }
+          return response.json();
+        })
+        .then(function () {
+          if (status) {
+            status.textContent = "Saved";
+          }
+        })
+        .catch(function () {
+          if (status) {
+            status.textContent = "Could not save";
+          }
+        });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", initReviewStream);
+  document.addEventListener("DOMContentLoaded", initFeedbackForms);
 })();

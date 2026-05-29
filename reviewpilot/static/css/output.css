@@ -351,6 +351,35 @@ input {
   overflow-wrap: anywhere;
 }
 
+.feedback-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.feedback-form button {
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2f3f4d;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.feedback-form button:hover {
+  border-color: #2457a6;
+  color: #17457f;
+}
+
+.feedback-form span {
+  color: #52616f;
+  font-size: 12px;
+}
+
 .is-hidden {
   display: none !important;
 }

@@ -15,4 +15,15 @@
     <dt>Recommendation</dt>
     <dd>{{ review.recommendation }}</dd>
   </dl>
+  <form class="feedback-form" method="post" action="/feedback" data-feedback-form>
+    <input type="hidden" name="job_id" value="{{ job_id }}">
+    <input
+      type="hidden"
+      name="finding_key"
+      value="{{ review.file_path or '' }}:{{ review.line_number or '' }}:{{ review.title }}"
+    >
+    <button type="submit" name="vote" value="up">Useful</button>
+    <button type="submit" name="vote" value="down">Not useful</button>
+    <span data-feedback-status></span>
+  </form>
 </article>
