@@ -53,6 +53,9 @@
     if (opts.text !== undefined) {
       element.textContent = opts.text;
     }
+    if (opts.html !== undefined) {
+      element.innerHTML = opts.html;
+    }
     if (opts.id) {
       element.id = opts.id;
     }
@@ -161,12 +164,122 @@
     return node("p", { className: "empty-state", text: message });
   }
 
+  function escapeHtml(value) {
+    return text(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function renderInlineMarkdown(value) {
+    return escapeHtml(value)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  }
+
+  function renderMarkdown(value) {
+    const lines = text(value).split(/\r?\n/);
+    const parts = [];
+    let paragraph = [];
+    let listMode = "";
+    let codeLines = [];
+    let inCode = false;
+
+    function flushParagraph() {
+      if (paragraph.length) {
+        parts.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+        paragraph = [];
+      }
+    }
+
+    function closeList() {
+      if (listMode) {
+        parts.push(`</${listMode}>`);
+        listMode = "";
+      }
+    }
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (inCode) {
+        if (trimmed.startsWith("```")) {
+          parts.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+          codeLines = [];
+          inCode = false;
+        } else {
+          codeLines.push(line);
+        }
+        continue;
+      }
+
+      if (trimmed.startsWith("```")) {
+        flushParagraph();
+        closeList();
+        inCode = true;
+        continue;
+      }
+
+      if (!trimmed) {
+        flushParagraph();
+        closeList();
+        continue;
+      }
+
+      const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+      if (heading) {
+        flushParagraph();
+        closeList();
+        parts.push(`<h${heading[1].length}>${renderInlineMarkdown(heading[2])}</h${heading[1].length}>`);
+        continue;
+      }
+
+      const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
+      if (unordered) {
+        flushParagraph();
+        if (listMode !== "ul") {
+          closeList();
+          parts.push("<ul>");
+          listMode = "ul";
+        }
+        parts.push(`<li>${renderInlineMarkdown(unordered[1])}</li>`);
+        continue;
+      }
+
+      const ordered = /^\d+\.\s+(.+)$/.exec(trimmed);
+      if (ordered) {
+        flushParagraph();
+        if (listMode !== "ol") {
+          closeList();
+          parts.push("<ol>");
+          listMode = "ol";
+        }
+        parts.push(`<li>${renderInlineMarkdown(ordered[1])}</li>`);
+        continue;
+      }
+
+      paragraph.push(trimmed);
+    }
+
+    if (inCode) {
+      parts.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    }
+    flushParagraph();
+    closeList();
+    return parts.join("\n");
+  }
+
   function renderReport(report, elements) {
     clearChildren(elements.report);
 
     elements.report.append(
       reportSection("Summary", [
-        node("p", { className: "summary-text", text: text(report.summary, "No summary returned.") }),
+        node("div", {
+          className: "summary-text markdown-body",
+          html: renderMarkdown(text(report.summary, "No summary returned.")),
+        }),
       ]),
       reportSection("Merge Conclusion", [
         node("p", {

@@ -1,9 +1,18 @@
 Summarize this pull request for a code reviewer.
 
-Return concise prose with:
-- the author's likely intent
-- the main changed areas
-- any notable cross-file or symbol-level context
+Return concise Markdown with exactly these sections:
+
+## Intent
+- the author's likely intent in 1-2 bullets
+
+## Changed Areas
+- the main changed files or subsystems in 2-4 bullets
+
+## Review Focus
+- notable cross-file or symbol-level context
+- concrete areas reviewers should inspect first
+
+Keep bullets short. Avoid repeating raw diff lines unless needed for context.
 
 PR title:
 {{ context.pr_title }}

@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from reviewpilot.analyzer.llm import LLMConfigurationError
 from reviewpilot.auth.session import get_github_token_from_request
 from reviewpilot.fetcher.github_api import GitHubAPIError
+from reviewpilot.markdown import render_markdown
 from reviewpilot.review_service import (
     ReviewConfigurationError,
     create_pending_configured_review_job,
@@ -20,6 +21,7 @@ from reviewpilot.review_service import (
 
 router = APIRouter(tags=["review"])
 templates = Jinja2Templates(directory="reviewpilot/templates")
+templates.env.filters["markdown"] = render_markdown
 
 
 @router.get("/")

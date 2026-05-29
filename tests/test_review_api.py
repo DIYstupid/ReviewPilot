@@ -49,7 +49,7 @@ def test_review_page_renders_complete_report() -> None:
     client = TestClient(app)
     job = job_store.create_pending("https://github.com/owner/repo/pull/1")
     report = ReviewReport(
-        summary="Parser now handles renamed fields.",
+        summary="## Parser summary\n\n- Handles **renamed** fields.\n- Keeps `legacy_name` fallback.",
         merge_conclusion="Merge is not recommended until P1 bugs are fixed.",
         risks=[
             ReviewFinding(
@@ -79,7 +79,9 @@ def test_review_page_renders_complete_report() -> None:
     response = client.get(f"/review/{job.job_id}")
 
     assert response.status_code == 200
-    assert "Parser now handles renamed fields." in response.text
+    assert "<h2>Parser summary</h2>" in response.text
+    assert "<li>Handles <strong>renamed</strong> fields.</li>" in response.text
+    assert "<li>Keeps <code>legacy_name</code> fallback.</li>" in response.text
     assert "Merge is not recommended until P1 bugs are fixed." in response.text
     assert "Missing fallback for old field" in response.text
     assert "app.py:12" in response.text

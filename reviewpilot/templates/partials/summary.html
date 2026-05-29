@@ -2,5 +2,5 @@
   <div class="section-header">
     <h2>Summary</h2>
   </div>
-  <p class="summary-text">{{ summary }}</p>
+  <div class="summary-text markdown-body">{{ summary | markdown | safe }}</div>
 </section>
