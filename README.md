@@ -1,18 +1,123 @@
 # ReviewPilot
 
-ReviewPilot is a FastAPI + Jinja2 + HTMX application for AI-assisted GitHub pull
-request review. Given a PR URL, it builds review context from the PR diff and
-changed files, then generates a structured review report with:
+> AI 驱动的 GitHub Pull Request 代码审查助手 | AI-Powered GitHub PR Review Assistant
 
-- Markdown summary of the author's intent and changed areas
-- risk findings with severity, confidence, file and line evidence
-- inline review suggestions for changed hunks
-- merge recommendation
-- optional feedback persistence for generated findings
+---
 
-The default mode is offline-safe, so the app and tests can run without GitHub or
-LLM credentials. Live review mode can fetch GitHub PRs and call DeepSeek through
-an OpenAI-compatible chat completion API.
+## 项目介绍
+
+ReviewPilot 是一个基于 FastAPI + Jinja2 + HTMX 的 AI 代码审查应用。输入 GitHub PR 链接，系统自动拉取 PR 变更内容，构建审查上下文（diff + 多语言 AST 符号表），通过 LLM 生成结构化的审查报告，包含：
+
+- **Markdown 摘要**：作者意图与变更区域分析
+- **风险发现**：按严重度（P0/P1/P2/P3）分级，附带文件路径、行号与置信度
+- **行内审查**：针对每个变更 hunk 的具体修改建议
+- **合并结论**：基于所有发现的综合合并建议
+- **反馈闭环**：支持对每条发现投"有用/无用"，持久化至 SQLite
+
+默认以离线模式运行，无需任何外部凭证即可启动 UI 与跑通测试。接入 GitHub Token 与 LLM API Key 后，即可进行真实的 PR 审查。
+
+### English Introduction
+
+ReviewPilot is an AI-assisted code review tool built on FastAPI + Jinja2 + HTMX.
+Given a GitHub PR URL, it fetches the PR diff and changed files, builds review
+context (diff + multi-language AST symbol table), then generates a structured
+review report via LLM:
+
+- **Markdown summary** of the author's intent and changed areas
+- **Risk findings** with severity (P0-P3), confidence, file path, and line evidence
+- **Inline reviews** for individual diff hunks
+- **Merge recommendation** derived from all findings
+- **Feedback loop** with up/down voting persisted to SQLite
+
+Runs offline by default — no credentials needed for UI exploration or tests.
+Connect a GitHub token and LLM API key to review real PRs.
+
+## 系统架构 / Architecture
+
+```mermaid
+graph TD
+    subgraph Browser
+        UI[HTMX + SSE UI]
+    end
+
+    subgraph FastAPI
+        Router[API Router]
+        Auth[GitHub OAuth]
+        SSE[SSE Stream]
+    end
+
+    subgraph Core["Review Pipeline"]
+        Fetcher[GitHub Client]
+        Context[Context Builder]
+        Summary[Summary Agent]
+        Risk[Risk Agent]
+        Line[Line Review Agent]
+        Validator[Static Validator]
+        Post[Post-processor]
+    end
+
+    subgraph External
+        GH[GitHub API]
+        LLM[DeepSeek / Qwen]
+        Tools[Ruff / Semgrep]
+    end
+
+    subgraph Storage
+        SQLite[(SQLite)]
+    end
+
+    UI --> Router
+    Router --> Auth
+    Router --> SSE
+    Router --> Core
+    Fetcher --> GH
+    Context --> Fetcher
+    Summary --> LLM
+    Risk --> LLM
+    Line --> LLM
+    Validator --> Tools
+    Post --> SQLite
+    SSE --> SQLite
+```
+
+## 审查流程 / Review Pipeline
+
+```mermaid
+flowchart LR
+    A[PR URL] --> B[Fetch PR]
+    B --> C[Build Context]
+    C --> D[Summary]
+    D --> E[Risk Analysis]
+    E --> F[Line Review]
+    F --> G[Static Validation]
+    G --> H[Post-process]
+    H --> I[Report]
+
+    B -.->|diff + files| C
+    C -.->|hunks + symbols| D
+    C -.->|hunks + symbols| E
+    C -.->|per-hunk context| F
+    H -.->|merge + sort + weight| I
+
+    style A fill:#2457a6,color:#fff
+    style I fill:#2f7d32,color:#fff
+    style E fill:#d8861d,color:#fff
+    style F fill:#d8861d,color:#fff
+```
+
+## 界面展示 / Screenshots
+
+> 在此处放置项目运行截图。建议包含以下场景：
+> Place your screenshots here. Suggested captures:
+
+| 场景 / Scene | 说明 / Description | 截图 / Screenshot |
+|---|---|---|
+| 首页 / Home | PR URL 输入表单 | <!-- ![home](screenshots/home.png) --> |
+| 审查进行中 / In Progress | SSE 流式进度更新 | <!-- ![progress](screenshots/progress.png) --> |
+| 审查报告 / Report | 摘要、风险列表、行内审查 | <!-- ![report](screenshots/report.png) --> |
+| CLI 输出 / CLI Output | 命令行 Markdown 报告 | <!-- ![cli](screenshots/cli.png) --> |
+
+---
 
 ## Requirements
 
