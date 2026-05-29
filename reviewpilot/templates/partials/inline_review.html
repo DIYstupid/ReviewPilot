@@ -1,4 +1,18 @@
-<article class="inline-review">
-  <h3>{{ review.title }}</h3>
-  <p>{{ review.recommendation }}</p>
+<article class="finding-card severity-{{ review.severity.value | lower }}">
+  <header class="finding-header">
+    <span class="severity-badge">{{ review.severity.value }}</span>
+    <h3>{{ review.title }}</h3>
+    <span class="confidence-badge">{{ (review.confidence * 100) | round(0) | int }}%</span>
+  </header>
+  {% if review.file_path %}
+  <p class="location break-anywhere">
+    {{ review.file_path }}{% if review.line_number %}:{{ review.line_number }}{% endif %}
+  </p>
+  {% endif %}
+  <dl class="finding-body">
+    <dt>Evidence</dt>
+    <dd>{{ review.evidence }}</dd>
+    <dt>Recommendation</dt>
+    <dd>{{ review.recommendation }}</dd>
+  </dl>
 </article>

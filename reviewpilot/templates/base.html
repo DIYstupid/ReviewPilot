@@ -3,8 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ReviewPilot</title>
+    <title>{% block title %}ReviewPilot{% endblock %}</title>
     <link rel="stylesheet" href="/static/css/output.css">
+    <script src="/static/js/htmx-sse.js" defer></script>
   </head>
   <body>
     {% block content %}{% endblock %}

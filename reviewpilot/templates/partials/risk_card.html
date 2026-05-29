@@ -1,4 +1,18 @@
-<article class="risk-card">
-  <h3>{{ risk.title }}</h3>
-  <p>{{ risk.evidence }}</p>
+<article class="finding-card severity-{{ risk.severity.value | lower }}">
+  <header class="finding-header">
+    <span class="severity-badge">{{ risk.severity.value }}</span>
+    <h3>{{ risk.title }}</h3>
+    <span class="confidence-badge">{{ (risk.confidence * 100) | round(0) | int }}%</span>
+  </header>
+  {% if risk.file_path %}
+  <p class="location break-anywhere">
+    {{ risk.file_path }}{% if risk.line_number %}:{{ risk.line_number }}{% endif %}
+  </p>
+  {% endif %}
+  <dl class="finding-body">
+    <dt>Evidence</dt>
+    <dd>{{ risk.evidence }}</dd>
+    <dt>Recommendation</dt>
+    <dd>{{ risk.recommendation }}</dd>
+  </dl>
 </article>

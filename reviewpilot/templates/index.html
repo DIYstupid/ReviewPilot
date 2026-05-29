@@ -1,10 +1,23 @@
 {% extends "base.html" %}
+{% block title %}ReviewPilot{% endblock %}
 {% block content %}
-<main>
-  <form method="post" action="/review">
-    <label for="pr-url">GitHub PR URL</label>
-    <input id="pr-url" name="pr_url" type="url" required>
-    <button type="submit">Review</button>
-  </form>
+<main class="app-shell app-shell--narrow">
+  <section class="start-panel">
+    <p class="eyebrow">ReviewPilot</p>
+    <h1>AI review for GitHub pull requests</h1>
+    <form class="review-form" method="post" action="/review">
+      <label for="pr-url">GitHub PR URL</label>
+      <div class="form-row">
+        <input
+          id="pr-url"
+          name="pr_url"
+          type="url"
+          placeholder="https://github.com/owner/repo/pull/1"
+          required
+        >
+        <button type="submit">Review</button>
+      </div>
+    </form>
+  </section>
 </main>
 {% endblock %}

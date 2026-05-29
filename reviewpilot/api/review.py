@@ -23,7 +23,7 @@ templates = Jinja2Templates(directory="reviewpilot/templates")
 
 @router.get("/")
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html", {})
 
 
 @router.post("/review")
@@ -49,7 +49,7 @@ async def review_page(request: Request, job_id: str):
     job = job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Review job not found")
-    return templates.TemplateResponse("review.html", {"request": request, "job": job, "job_id": job_id})
+    return templates.TemplateResponse(request, "review.html", {"job": job, "job_id": job_id})
 
 
 @router.get("/review/{job_id}/stream")

@@ -1,16 +1,111 @@
 {% extends "base.html" %}
+{% block title %}Review {{ job.ref.slug }} · ReviewPilot{% endblock %}
 {% block content %}
-<main id="review-stream">
-  <h1>Review {{ job.ref.slug }}</h1>
-  {% if job.report %}
-  <section>
-    <h2>Summary</h2>
-    <p>{{ job.report.summary }}</p>
+{% set status_steps = [
+  ("pending", "Queued", "Waiting for the review worker."),
+  ("fetching", "Fetching PR", "Loading metadata and diff."),
+  ("fetching_files", "Fetching files", "Loading changed file contents."),
+  ("building_context", "Building context", "Preparing diff, file, and symbol context."),
+  ("analyzing_summary", "Summary", "Generating PR summary."),
+  ("analyzing_risks", "Risk scan", "Finding high-impact risks."),
+  ("analyzing_lines", "Line review", "Checking changed hunks."),
+  ("validating_static", "Static checks", "Running configured validators."),
+  ("postprocessing", "Post-process", "Merging and ranking findings."),
+  ("complete", "Complete", "Report is ready.")
+] %}
+<main class="app-shell review-page">
+  <header class="review-header">
+    <a class="brand-link" href="/">ReviewPilot</a>
+    <div class="review-heading">
+      <p class="eyebrow">GitHub PR Review</p>
+      <h1>{{ job.ref.slug }}</h1>
+      <p class="muted break-anywhere">{{ job.pr_url }}</p>
+    </div>
+    <span id="status-pill" class="status-pill" data-status-pill>{{ job.status | replace("_", " ") | title }}</span>
+  </header>
+
+  <section
+    id="review-root"
+    class="review-grid"
+    data-review-stream-url="/review/{{ job_id }}/stream"
+    data-current-status="{{ job.status }}"
+  >
+    <aside class="status-panel" aria-label="Review progress">
+      <h2>Progress</h2>
+      <ol id="status-timeline" class="status-timeline">
+        {% for key, label, description in status_steps %}
+        <li class="status-step" data-step="{{ key }}">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>{{ label }}</strong>
+            <p>{{ description }}</p>
+          </div>
+        </li>
+        {% endfor %}
+        <li class="status-step status-step--failed{% if job.status == 'failed' %} is-current{% endif %}" data-step="failed">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong>Failed</strong>
+            <p>The review stopped before producing a report.</p>
+          </div>
+        </li>
+      </ol>
+    </aside>
+
+    <section class="result-panel" aria-live="polite">
+      <div id="loading-panel" class="message-panel{% if job.status in ['complete', 'failed'] %} is-hidden{% endif %}">
+        <h2>Review running</h2>
+        <p data-status-text>{{ job.status | replace("_", " ") | title }}</p>
+      </div>
+
+      <div id="error-panel" class="message-panel message-panel--error{% if job.status != 'failed' %} is-hidden{% endif %}" role="alert">
+        <h2>Review failed</h2>
+        <p data-error-message>{{ job.error or "" }}</p>
+      </div>
+
+      <div id="report-content" class="report-stack{% if not job.report %} is-hidden{% endif %}">
+        {% if job.report %}
+          {% with summary=job.report.summary %}
+            {% include "partials/summary.html" %}
+          {% endwith %}
+
+          <section class="report-section">
+            <div class="section-header">
+              <h2>Merge Conclusion</h2>
+            </div>
+            <p class="conclusion-text">{{ job.report.merge_conclusion }}</p>
+          </section>
+
+          <section class="report-section">
+            <div class="section-header">
+              <h2>Risks</h2>
+              <span class="count-badge">{{ job.report.risks | length }}</span>
+            </div>
+            <div class="finding-list">
+              {% for risk in job.report.risks %}
+                {% include "partials/risk_card.html" %}
+              {% else %}
+                <p class="empty-state">No risk findings.</p>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="report-section">
+            <div class="section-header">
+              <h2>Inline Review</h2>
+              <span class="count-badge">{{ job.report.inline_reviews | length }}</span>
+            </div>
+            <div class="finding-list">
+              {% for review in job.report.inline_reviews %}
+                {% include "partials/inline_review.html" %}
+              {% else %}
+                <p class="empty-state">No inline findings.</p>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+      </div>
+    </section>
   </section>
-  <section>
-    <h2>Merge Conclusion</h2>
-    <p>{{ job.report.merge_conclusion }}</p>
-  </section>
-  {% endif %}
 </main>
 {% endblock %}
