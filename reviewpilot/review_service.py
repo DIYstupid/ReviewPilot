@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -13,6 +15,13 @@ from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
 from reviewpilot.analyzer.summary import SummaryResult, generate_summary
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import build_review_context
+from reviewpilot.db import (
+    clear_all_jobs,
+    get_event_records,
+    get_job_record,
+    insert_event,
+    upsert_job,
+)
 from reviewpilot.fetcher.github_api import (
     GitHubClient,
     PullRequestMetadata,
@@ -55,12 +64,16 @@ class ReviewJob:
 class ReviewJobStore:
     def __init__(self) -> None:
         self._jobs: dict[str, ReviewJob] = {}
+        self._events: dict[str, asyncio.Event] = {}
 
     def put(self, job: ReviewJob) -> None:
         self._jobs[job.job_id] = job
 
     def get(self, job_id: str) -> ReviewJob | None:
-        return self._jobs.get(job_id)
+        job = self._jobs.get(job_id)
+        if job is not None:
+            return job
+        return self._rehydrate(job_id)
 
     def create_pending(self, pr_url: str, *, github_token: str | None = None) -> ReviewJob:
         ref = parse_pr_url(pr_url)
@@ -72,71 +85,146 @@ class ReviewJobStore:
             status="pending",
             github_token=github_token,
         )
-        job = replace(job, events=(_review_event(job_id, "status", {"status": "pending"}),))
+        first_event = _review_event(job_id, "status", {"status": "pending"})
+        job = replace(job, events=(first_event,))
         self.put(job)
+        self._persist_job(job)
+        self._persist_events(job_id, (first_event,))
+        self._notify(job_id)
         return job
 
     def update_status(self, job_id: str, status: str) -> ReviewJob:
         job = self._require(job_id)
+        new_event = _review_event(job_id, "status", {"status": status})
         updated = replace(
             job,
             status=status,
-            events=job.events + (_review_event(job_id, "status", {"status": status}),),
+            events=job.events + (new_event,),
         )
         self.put(updated)
+        self._persist_job(updated)
+        self._persist_events(job_id, (new_event,))
+        self._notify(job_id)
         return updated
 
     def complete(self, job_id: str, report: ReviewReport) -> ReviewJob:
         job = self._require(job_id)
+        report_event = _review_event(job_id, "report", report.model_dump(mode="json"))
+        status_event = _review_event(job_id, "status", {"status": "complete"})
+        new_events = (report_event, status_event)
         updated = replace(
             job,
             status="complete",
             github_token=None,
             report=report,
             error=None,
-            events=job.events
-            + (
-                _review_event(job_id, "report", report.model_dump(mode="json")),
-                _review_event(job_id, "status", {"status": "complete"}),
-            ),
+            events=job.events + new_events,
         )
         self.put(updated)
+        self._persist_job(updated)
+        self._persist_events(job_id, new_events)
+        self._notify(job_id)
         return updated
 
     def fail(self, job_id: str, error: str) -> ReviewJob:
         job = self._require(job_id)
+        error_event = _review_event(job_id, "error", {"message": error})
+        status_event = _review_event(job_id, "status", {"status": "failed"})
+        new_events = (error_event, status_event)
         updated = replace(
             job,
             status="failed",
             github_token=None,
             error=error,
-            events=job.events
-            + (
-                _review_event(job_id, "error", {"message": error}),
-                _review_event(job_id, "status", {"status": "failed"}),
-            ),
+            events=job.events + new_events,
         )
         self.put(updated)
+        self._persist_job(updated)
+        self._persist_events(job_id, new_events)
+        self._notify(job_id)
         return updated
 
     def record_stage_error(self, job_id: str, stage: str, message: str) -> ReviewJob:
         job = self._require(job_id)
+        new_event = _review_event(job_id, "stage_error", {"stage": stage, "message": message})
         updated = replace(
             job,
-            events=job.events
-            + (_review_event(job_id, "stage_error", {"stage": stage, "message": message}),),
+            events=job.events + (new_event,),
         )
         self.put(updated)
+        self._persist_events(job_id, (new_event,))
+        self._notify(job_id)
         return updated
 
     def clear(self) -> None:
         self._jobs.clear()
+        self._events.clear()
+        clear_all_jobs()
 
     def _require(self, job_id: str) -> ReviewJob:
         job = self.get(job_id)
         if job is None:
             raise KeyError(f"Review job not found: {job_id}")
         return job
+
+    def _rehydrate(self, job_id: str) -> ReviewJob | None:
+        record = get_job_record(job_id)
+        if record is None:
+            return None
+        events: list[ReviewEvent] = []
+        for er in get_event_records(job_id):
+            data = json.loads(er.data_json)
+            events.append(ReviewEvent(event=er.event, data=data, created_at=er.created_at))
+        report = None
+        if record.report_json:
+            try:
+                report = ReviewReport.model_validate_json(record.report_json)
+            except Exception:
+                pass
+        job = ReviewJob(
+            job_id=record.job_id,
+            pr_url=record.pr_url,
+            ref=PullRequestRef(owner=record.owner, repo=record.repo, number=record.number),
+            status=record.status,
+            report=report,
+            error=record.error,
+            created_at=record.created_at,
+            events=tuple(events),
+        )
+        self._jobs[job_id] = job
+        return job
+
+    def _persist_job(self, job: ReviewJob) -> None:
+        report_json = job.report.model_dump_json() if job.report else None
+        upsert_job(
+            job_id=job.job_id,
+            pr_url=job.pr_url,
+            owner=job.ref.owner,
+            repo=job.ref.repo,
+            number=job.ref.number,
+            status=job.status,
+            error=job.error,
+            report_json=report_json,
+        )
+
+    def _persist_events(self, job_id: str, events: tuple[ReviewEvent, ...]) -> None:
+        for evt in events:
+            insert_event(
+                job_id=job_id,
+                event=evt.event,
+                data_json=json.dumps(evt.data, ensure_ascii=False),
+                created_at=evt.created_at,
+            )
+
+    def _notify(self, job_id: str) -> None:
+        if job_id in self._events:
+            self._events[job_id].set()
+            self._events[job_id] = asyncio.Event()
+
+    async def _wait_for_events(self, job_id: str) -> None:
+        if job_id not in self._events:
+            self._events[job_id] = asyncio.Event()
+        await self._events[job_id].wait()
 
 
 job_store = ReviewJobStore()

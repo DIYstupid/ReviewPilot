@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from urllib.parse import parse_qs
 
@@ -80,6 +79,6 @@ async def stream_review(job_id: str):
 
             if current_job.status in {"complete", "failed"}:
                 return
-            await asyncio.sleep(0.2)
+            await job_store._wait_for_events(job_id)
 
     return StreamingResponse(events(), media_type="text/event-stream")
