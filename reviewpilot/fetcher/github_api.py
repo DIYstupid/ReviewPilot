@@ -236,6 +236,28 @@ class GitHubClient:
         self._raise_for_status(response)
         return response.text
 
+    async def _post_json(self, client: Any, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        response = await client.post(path, headers=self._headers(), json=body)
+        self._raise_for_status(response)
+        data = response.json()
+        if not isinstance(data, dict):
+            raise GitHubAPIError(f"Expected object response from GitHub for {path}")
+        return data
+
+    async def post_issue_comment(self, ref: PullRequestRef, body: str) -> dict[str, Any]:
+        import httpx
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self._headers(),
+            timeout=self.timeout,
+        ) as client:
+            return await self._post_json(
+                client,
+                f"/repos/{ref.owner}/{ref.repo}/issues/{ref.number}/comments",
+                {"body": body},
+            )
+
     def _raise_for_status(self, response: Any) -> None:
         if response.status_code < 400:
             return
