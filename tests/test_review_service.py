@@ -1,7 +1,7 @@
 import pytest
 
 from reviewpilot.analyzer.llm import LLMRequest, LLMResponse
-from reviewpilot.analyzer.schemas import ReviewFinding, Severity
+from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport, Severity
 from reviewpilot.review_service import (
     ReviewConfigurationError,
     ReviewPipelineClients,
@@ -81,6 +81,27 @@ def test_create_pending_configured_review_job_stores_pending_event(
     assert job.events[0].event == "status"
     assert job.events[0].data == {"job_id": job.job_id, "status": "pending"}
     assert job_store.get(job.job_id) == job
+
+
+def test_job_store_clears_github_token_on_terminal_state() -> None:
+    job_store.clear()
+    pending = job_store.create_pending(
+        "https://github.com/owner/repo/pull/1",
+        github_token="oauth-token",
+    )
+    completed = job_store.complete(
+        pending.job_id,
+        ReviewReport(summary="ok", risks=[], inline_reviews=[], merge_conclusion="ok"),
+    )
+
+    failed_pending = job_store.create_pending(
+        "https://github.com/owner/repo/pull/2",
+        github_token="oauth-token",
+    )
+    failed = job_store.fail(failed_pending.job_id, "failed")
+
+    assert completed.github_token is None
+    assert failed.github_token is None
 
 
 @pytest.mark.asyncio
@@ -211,6 +232,45 @@ async def test_create_configured_review_job_can_use_github_and_deepseek(
         "risk",
         "line_review",
     ]
+
+
+@pytest.mark.asyncio
+async def test_create_configured_review_job_prefers_oauth_token_for_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        review_fetch_mode = "github"
+        review_llm_provider = "offline"
+        github_pat = "pat-token"
+
+    class FakeGitHubClient:
+        token: str | None = None
+
+        def __init__(self, token: str | None = None) -> None:
+            FakeGitHubClient.token = token
+
+        async def fetch_pull_request(self, ref: PullRequestRef) -> PullRequestSnapshot:
+            return _make_snapshot(ref)
+
+        async def fetch_changed_file_contents(
+            self,
+            snapshot: PullRequestSnapshot,
+        ) -> dict[str, str]:
+            _ = snapshot
+            return {"app.py": "def changed():\n    return helper()\n"}
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("reviewpilot.review_service.GitHubClient", FakeGitHubClient)
+
+    job = await create_configured_review_job(
+        "https://github.com/owner/repo/pull/2",
+        github_token="oauth-token",
+    )
+
+    assert FakeGitHubClient.token == "oauth-token"
+    assert job.report is not None
 
 
 @pytest.mark.asyncio

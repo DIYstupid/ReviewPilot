@@ -136,8 +136,8 @@ def test_create_review_returns_503_for_pipeline_configuration_error(
     job_store.clear()
     client = TestClient(app)
 
-    def fail_review(pr_url: str):
-        _ = pr_url
+    def fail_review(pr_url: str, **kwargs):
+        _ = pr_url, kwargs
         raise ReviewConfigurationError("Unsupported review_fetch_mode: custom")
 
     monkeypatch.setattr("reviewpilot.api.review.create_pending_configured_review_job", fail_review)

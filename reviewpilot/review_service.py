@@ -45,6 +45,7 @@ class ReviewJob:
     pr_url: str
     ref: PullRequestRef
     status: str
+    github_token: str | None = None
     report: ReviewReport | None = None
     error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -61,10 +62,16 @@ class ReviewJobStore:
     def get(self, job_id: str) -> ReviewJob | None:
         return self._jobs.get(job_id)
 
-    def create_pending(self, pr_url: str) -> ReviewJob:
+    def create_pending(self, pr_url: str, *, github_token: str | None = None) -> ReviewJob:
         ref = parse_pr_url(pr_url)
         job_id = stable_job_id(ref)
-        job = ReviewJob(job_id=job_id, pr_url=pr_url, ref=ref, status="pending")
+        job = ReviewJob(
+            job_id=job_id,
+            pr_url=pr_url,
+            ref=ref,
+            status="pending",
+            github_token=github_token,
+        )
         job = replace(job, events=(_review_event(job_id, "status", {"status": "pending"}),))
         self.put(job)
         return job
@@ -84,6 +91,7 @@ class ReviewJobStore:
         updated = replace(
             job,
             status="complete",
+            github_token=None,
             report=report,
             error=None,
             events=job.events
@@ -100,6 +108,7 @@ class ReviewJobStore:
         updated = replace(
             job,
             status="failed",
+            github_token=None,
             error=error,
             events=job.events
             + (
@@ -134,9 +143,9 @@ async def create_offline_review_job(pr_url: str) -> ReviewJob:
     return await create_review_job(pr_url)
 
 
-def create_pending_configured_review_job(pr_url: str) -> ReviewJob:
+def create_pending_configured_review_job(pr_url: str, *, github_token: str | None = None) -> ReviewJob:
     validate_review_configuration()
-    return job_store.create_pending(pr_url)
+    return job_store.create_pending(pr_url, github_token=github_token)
 
 
 async def run_configured_review_job(job_id: str) -> ReviewJob:
@@ -148,6 +157,7 @@ async def run_configured_review_job(job_id: str) -> ReviewJob:
         return await create_configured_review_job(
             job.pr_url,
             job_id=job.job_id,
+            github_token=job.github_token,
             record_events=True,
         )
     except Exception as exc:
@@ -158,6 +168,7 @@ async def create_configured_review_job(
     pr_url: str,
     *,
     job_id: str | None = None,
+    github_token: str | None = None,
     record_events: bool = False,
 ) -> ReviewJob:
     settings = get_settings()
@@ -177,6 +188,7 @@ async def create_configured_review_job(
         return await create_github_review_job(
             pr_url,
             clients=clients,
+            github_token=github_token,
             job_id=job_id,
             record_events=record_events,
             static_validator=static_validator,
@@ -189,12 +201,13 @@ async def create_github_review_job(
     *,
     clients: ReviewPipelineClients | None = None,
     file_contents: dict[str, str] | None = None,
+    github_token: str | None = None,
     job_id: str | None = None,
     record_events: bool = False,
     static_validator: StaticValidator | None = None,
 ) -> ReviewJob:
     settings = get_settings()
-    github = GitHubClient(token=settings.github_pat)
+    github = GitHubClient(token=github_token or settings.github_pat)
     ref = parse_pr_url(pr_url)
     review_job_id = job_id or stable_job_id(ref)
     if record_events and job_store.get(review_job_id) is None:

@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from reviewpilot.analyzer.llm import LLMConfigurationError
+from reviewpilot.auth.session import get_github_token_from_request
 from reviewpilot.fetcher.github_api import GitHubAPIError
 from reviewpilot.review_service import (
     ReviewConfigurationError,
@@ -34,7 +35,10 @@ async def create_review(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Missing pr_url")
 
     try:
-        job = create_pending_configured_review_job(pr_url)
+        job = create_pending_configured_review_job(
+            pr_url,
+            github_token=get_github_token_from_request(request),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except (GitHubAPIError, LLMConfigurationError, ReviewConfigurationError) as exc:
