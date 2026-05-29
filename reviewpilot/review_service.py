@@ -25,6 +25,10 @@ from reviewpilot.post.report import build_review_report
 SnapshotFetcher = Callable[[PullRequestRef], Awaitable[PullRequestSnapshot]]
 
 
+class ReviewConfigurationError(RuntimeError):
+    """Raised when the configured review pipeline cannot be built."""
+
+
 @dataclass(frozen=True)
 class ReviewJob:
     job_id: str
@@ -64,6 +68,18 @@ async def create_offline_review_job(pr_url: str) -> ReviewJob:
     return await create_review_job(pr_url)
 
 
+async def create_configured_review_job(pr_url: str) -> ReviewJob:
+    settings = get_settings()
+    clients = build_review_pipeline_clients(settings.review_llm_provider)
+    fetch_mode = _normalize_mode(settings.review_fetch_mode)
+
+    if fetch_mode == "offline":
+        return await create_review_job(pr_url, clients=clients)
+    if fetch_mode == "github":
+        return await create_github_review_job(pr_url, clients=clients)
+    raise ReviewConfigurationError(f"Unsupported review_fetch_mode: {settings.review_fetch_mode}")
+
+
 async def create_github_review_job(
     pr_url: str,
     *,
@@ -86,11 +102,10 @@ async def create_deepseek_review_job(
     snapshot_fetcher: SnapshotFetcher | None = None,
     file_contents: dict[str, str] | None = None,
 ) -> ReviewJob:
-    client = create_deepseek_client()
     return await create_review_job(
         pr_url,
         snapshot_fetcher=snapshot_fetcher,
-        clients=ReviewPipelineClients(summary=client, risk=client, line_review=client),
+        clients=build_review_pipeline_clients("deepseek"),
         file_contents=file_contents,
     )
 
@@ -120,6 +135,16 @@ async def create_review_job(
     return job
 
 
+def build_review_pipeline_clients(provider: str | None = None) -> ReviewPipelineClients:
+    llm_provider = _normalize_mode(provider)
+    if llm_provider == "offline":
+        return ReviewPipelineClients()
+    if llm_provider == "deepseek":
+        client = create_deepseek_client()
+        return ReviewPipelineClients(summary=client, risk=client, line_review=client)
+    raise ReviewConfigurationError(f"Unsupported review_llm_provider: {provider}")
+
+
 def stable_job_id(ref: PullRequestRef) -> str:
     digest = sha1(f"{ref.owner}/{ref.repo}/{ref.number}".encode("utf-8")).hexdigest()[:10]
     return f"{ref.owner}-{ref.repo}-{ref.number}-{digest}"
@@ -142,3 +167,7 @@ def _empty_snapshot(ref: PullRequestRef, pr_url: str) -> PullRequestSnapshot:
             deletions=0,
         ),
     )
+
+
+def _normalize_mode(value: str | None) -> str:
+    return (value or "offline").strip().lower()

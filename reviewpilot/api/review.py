@@ -7,7 +7,13 @@ from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
-from reviewpilot.review_service import create_offline_review_job, job_store
+from reviewpilot.analyzer.llm import LLMConfigurationError
+from reviewpilot.fetcher.github_api import GitHubAPIError
+from reviewpilot.review_service import (
+    ReviewConfigurationError,
+    create_configured_review_job,
+    job_store,
+)
 
 router = APIRouter(tags=["review"])
 templates = Jinja2Templates(directory="reviewpilot/templates")
@@ -26,9 +32,11 @@ async def create_review(request: Request):
         raise HTTPException(status_code=400, detail="Missing pr_url")
 
     try:
-        job = await create_offline_review_job(pr_url)
+        job = await create_configured_review_job(pr_url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (GitHubAPIError, LLMConfigurationError, ReviewConfigurationError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return RedirectResponse(url=f"/review/{job.job_id}", status_code=status.HTTP_303_SEE_OTHER)
 

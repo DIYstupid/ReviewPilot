@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     app_secret_key: str = Field(default="change-me")
     database_url: str = "sqlite:///./reviewpilot.db"
     cache_dir: str = ".cache/reviewpilot"
+    review_fetch_mode: str = "offline"
+    review_llm_provider: str = "offline"
 
     github_client_id: str | None = None
     github_client_secret: str | None = None
