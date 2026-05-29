@@ -9,8 +9,10 @@ from reviewpilot.review_service import (
     create_deepseek_review_job,
     create_github_review_job,
     create_offline_review_job,
+    create_pending_configured_review_job,
     create_review_job,
     job_store,
+    run_configured_review_job,
     stable_job_id,
 )
 from reviewpilot.fetcher.github_api import (
@@ -58,6 +60,79 @@ async def test_create_offline_review_job_stores_complete_report() -> None:
     assert job.report is not None
     assert "owner/repo#1" in job.report.summary
     assert job_store.get(job.job_id) == job
+
+
+def test_create_pending_configured_review_job_stores_pending_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        review_fetch_mode = "offline"
+        review_llm_provider = "offline"
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+
+    job = create_pending_configured_review_job("https://github.com/owner/repo/pull/1")
+
+    assert job.status == "pending"
+    assert job.events[0].event == "status"
+    assert job.events[0].data == {"job_id": job.job_id, "status": "pending"}
+    assert job_store.get(job.job_id) == job
+
+
+@pytest.mark.asyncio
+async def test_run_configured_review_job_records_status_and_report_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        review_fetch_mode = "offline"
+        review_llm_provider = "offline"
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+    pending = create_pending_configured_review_job("https://github.com/owner/repo/pull/1")
+
+    job = await run_configured_review_job(pending.job_id)
+
+    assert job.status == "complete"
+    assert job.report is not None
+    assert [event.data.get("status") for event in job.events if event.event == "status"] == [
+        "pending",
+        "fetching",
+        "building_context",
+        "analyzing_summary",
+        "analyzing_risks",
+        "analyzing_lines",
+        "postprocessing",
+        "complete",
+    ]
+    assert any(event.event == "report" for event in job.events)
+
+
+@pytest.mark.asyncio
+async def test_run_configured_review_job_records_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        review_fetch_mode = "offline"
+        review_llm_provider = "offline"
+
+    async def fail_review(pr_url: str, **kwargs):
+        _ = pr_url, kwargs
+        raise RuntimeError("review failed")
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("reviewpilot.review_service.create_configured_review_job", fail_review)
+    pending = create_pending_configured_review_job("https://github.com/owner/repo/pull/1")
+
+    job = await run_configured_review_job(pending.job_id)
+
+    assert job.status == "failed"
+    assert job.error == "review failed"
+    assert job.events[-2].event == "error"
+    assert job.events[-1].data["status"] == "failed"
 
 
 @pytest.mark.asyncio

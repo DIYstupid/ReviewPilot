@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha1
+from typing import Any
 
 from reviewpilot.analyzer.llm import ChatCompletionClient, create_deepseek_client
 from reviewpilot.analyzer.line_review import generate_inline_reviews
@@ -30,6 +31,13 @@ class ReviewConfigurationError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ReviewEvent:
+    event: str
+    data: dict[str, Any]
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(frozen=True)
 class ReviewJob:
     job_id: str
     pr_url: str
@@ -38,6 +46,7 @@ class ReviewJob:
     report: ReviewReport | None = None
     error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    events: tuple[ReviewEvent, ...] = ()
 
 
 class ReviewJobStore:
@@ -50,8 +59,63 @@ class ReviewJobStore:
     def get(self, job_id: str) -> ReviewJob | None:
         return self._jobs.get(job_id)
 
+    def create_pending(self, pr_url: str) -> ReviewJob:
+        ref = parse_pr_url(pr_url)
+        job_id = stable_job_id(ref)
+        job = ReviewJob(job_id=job_id, pr_url=pr_url, ref=ref, status="pending")
+        job = replace(job, events=(_review_event(job_id, "status", {"status": "pending"}),))
+        self.put(job)
+        return job
+
+    def update_status(self, job_id: str, status: str) -> ReviewJob:
+        job = self._require(job_id)
+        updated = replace(
+            job,
+            status=status,
+            events=job.events + (_review_event(job_id, "status", {"status": status}),),
+        )
+        self.put(updated)
+        return updated
+
+    def complete(self, job_id: str, report: ReviewReport) -> ReviewJob:
+        job = self._require(job_id)
+        updated = replace(
+            job,
+            status="complete",
+            report=report,
+            error=None,
+            events=job.events
+            + (
+                _review_event(job_id, "report", report.model_dump(mode="json")),
+                _review_event(job_id, "status", {"status": "complete"}),
+            ),
+        )
+        self.put(updated)
+        return updated
+
+    def fail(self, job_id: str, error: str) -> ReviewJob:
+        job = self._require(job_id)
+        updated = replace(
+            job,
+            status="failed",
+            error=error,
+            events=job.events
+            + (
+                _review_event(job_id, "error", {"message": error}),
+                _review_event(job_id, "status", {"status": "failed"}),
+            ),
+        )
+        self.put(updated)
+        return updated
+
     def clear(self) -> None:
         self._jobs.clear()
+
+    def _require(self, job_id: str) -> ReviewJob:
+        job = self.get(job_id)
+        if job is None:
+            raise KeyError(f"Review job not found: {job_id}")
+        return job
 
 
 job_store = ReviewJobStore()
@@ -68,15 +132,50 @@ async def create_offline_review_job(pr_url: str) -> ReviewJob:
     return await create_review_job(pr_url)
 
 
-async def create_configured_review_job(pr_url: str) -> ReviewJob:
+def create_pending_configured_review_job(pr_url: str) -> ReviewJob:
+    validate_review_configuration()
+    return job_store.create_pending(pr_url)
+
+
+async def run_configured_review_job(job_id: str) -> ReviewJob:
+    job = job_store.get(job_id)
+    if job is None:
+        raise KeyError(f"Review job not found: {job_id}")
+
+    try:
+        return await create_configured_review_job(
+            job.pr_url,
+            job_id=job.job_id,
+            record_events=True,
+        )
+    except Exception as exc:
+        return job_store.fail(job_id, str(exc))
+
+
+async def create_configured_review_job(
+    pr_url: str,
+    *,
+    job_id: str | None = None,
+    record_events: bool = False,
+) -> ReviewJob:
     settings = get_settings()
     clients = build_review_pipeline_clients(settings.review_llm_provider)
     fetch_mode = _normalize_mode(settings.review_fetch_mode)
 
     if fetch_mode == "offline":
-        return await create_review_job(pr_url, clients=clients)
+        return await create_review_job(
+            pr_url,
+            clients=clients,
+            job_id=job_id,
+            record_events=record_events,
+        )
     if fetch_mode == "github":
-        return await create_github_review_job(pr_url, clients=clients)
+        return await create_github_review_job(
+            pr_url,
+            clients=clients,
+            job_id=job_id,
+            record_events=record_events,
+        )
     raise ReviewConfigurationError(f"Unsupported review_fetch_mode: {settings.review_fetch_mode}")
 
 
@@ -85,6 +184,8 @@ async def create_github_review_job(
     *,
     clients: ReviewPipelineClients | None = None,
     file_contents: dict[str, str] | None = None,
+    job_id: str | None = None,
+    record_events: bool = False,
 ) -> ReviewJob:
     settings = get_settings()
     github = GitHubClient(token=settings.github_pat)
@@ -93,6 +194,8 @@ async def create_github_review_job(
         snapshot_fetcher=github.fetch_pull_request,
         clients=clients,
         file_contents=file_contents,
+        job_id=job_id,
+        record_events=record_events,
     )
 
 
@@ -116,23 +219,46 @@ async def create_review_job(
     snapshot_fetcher: SnapshotFetcher | None = None,
     clients: ReviewPipelineClients | None = None,
     file_contents: dict[str, str] | None = None,
+    job_id: str | None = None,
+    record_events: bool = False,
 ) -> ReviewJob:
     ref = parse_pr_url(pr_url)
-    job_id = stable_job_id(ref)
+    review_job_id = job_id or stable_job_id(ref)
+    if record_events and job_store.get(review_job_id) is None:
+        job_store.create_pending(pr_url)
+
+    _record_status(review_job_id, "fetching", record_events)
     snapshot = await snapshot_fetcher(ref) if snapshot_fetcher else _empty_snapshot(ref, pr_url)
+    _record_status(review_job_id, "building_context", record_events)
     context = build_review_context(snapshot, file_contents=file_contents)
     pipeline_clients = clients or ReviewPipelineClients()
+
+    _record_status(review_job_id, "analyzing_summary", record_events)
     summary = await generate_summary(context, client=pipeline_clients.summary)
+    _record_status(review_job_id, "analyzing_risks", record_events)
     risks = await generate_risks(context, client=pipeline_clients.risk)
+    _record_status(review_job_id, "analyzing_lines", record_events)
     inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
+    _record_status(review_job_id, "postprocessing", record_events)
     report = build_review_report(
         summary=summary.content,
         risks=risks.risks,
         inline_reviews=inline_reviews.inline_reviews,
     )
-    job = ReviewJob(job_id=job_id, pr_url=pr_url, ref=ref, status="complete", report=report)
+    if record_events:
+        return job_store.complete(review_job_id, report)
+
+    job = ReviewJob(job_id=review_job_id, pr_url=pr_url, ref=ref, status="complete", report=report)
     job_store.put(job)
     return job
+
+
+def validate_review_configuration() -> None:
+    settings = get_settings()
+    fetch_mode = _normalize_mode(settings.review_fetch_mode)
+    if fetch_mode not in {"offline", "github"}:
+        raise ReviewConfigurationError(f"Unsupported review_fetch_mode: {settings.review_fetch_mode}")
+    build_review_pipeline_clients(settings.review_llm_provider)
 
 
 def build_review_pipeline_clients(provider: str | None = None) -> ReviewPipelineClients:
@@ -171,3 +297,12 @@ def _empty_snapshot(ref: PullRequestRef, pr_url: str) -> PullRequestSnapshot:
 
 def _normalize_mode(value: str | None) -> str:
     return (value or "offline").strip().lower()
+
+
+def _record_status(job_id: str, status: str, enabled: bool) -> None:
+    if enabled:
+        job_store.update_status(job_id, status)
+
+
+def _review_event(job_id: str, event: str, data: dict[str, Any]) -> ReviewEvent:
+    return ReviewEvent(event=event, data={"job_id": job_id, **data})
