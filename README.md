@@ -19,7 +19,7 @@ an OpenAI-compatible chat completion API.
 - Python 3.11 or newer
 - Git, required for local checkout helpers
 - A GitHub token for live PR fetching, especially for private repositories
-- A DeepSeek API key if you want real LLM analysis
+- A DeepSeek or Qwen API key if you want real LLM analysis
 
 Dependencies are pinned in `requirements*.txt`. This project does not require
 `uv`.
@@ -39,8 +39,8 @@ If you only need runtime dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Optional Semgrep dependencies are separated because Semgrep is not part of the
-default review pipeline yet:
+Optional Semgrep dependencies are needed if you use `REVIEW_STATIC_VALIDATOR=semgrep`
+or `ruff+semgrep`:
 
 ```powershell
 python -m pip install -r requirements-optional.txt
@@ -78,16 +78,36 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-`REVIEW_STATIC_VALIDATOR=ruff` runs Ruff against fetched file contents and merges
-diagnostics into the risk list.
+`REVIEW_STATIC_VALIDATOR` runs static analysis tools against fetched file contents
+and merges diagnostics into the risk list. Supported values: `ruff`, `semgrep`,
+or `ruff+semgrep` to run both.
+
+To use Qwen instead of DeepSeek:
+
+```env
+REVIEW_LLM_PROVIDER=qwen
+QWEN_API_KEY=your_qwen_key
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen2.5-coder
+```
+
+Production deployments should split the session secret into separate signing and
+encryption keys:
+
+```env
+APP_SECRET_KEY=replace-with-a-local-random-secret
+SESSION_SIGNING_KEY=replace-with-a-local-random-signing-key
+SESSION_ENCRYPTION_KEY=replace-with-a-local-random-encryption-key
+APP_ENV=production
+```
 
 Supported configuration values:
 
 | Variable | Default | Values |
 | --- | --- | --- |
 | `REVIEW_FETCH_MODE` | `offline` | `offline`, `github` |
-| `REVIEW_LLM_PROVIDER` | `offline` | `offline`, `deepseek` |
-| `REVIEW_STATIC_VALIDATOR` | `none` | `none`, `ruff` |
+| `REVIEW_LLM_PROVIDER` | `offline` | `offline`, `deepseek`, `qwen` |
+| `REVIEW_STATIC_VALIDATOR` | `none` | `none`, `ruff`, `semgrep`, `ruff+semgrep` |
 
 GitHub OAuth login is optional. Configure it if you want the browser session to
 provide the GitHub token instead of relying only on `GITHUB_PAT`:
@@ -133,8 +153,9 @@ and then submit PR URLs from the web UI.
 
 ## CLI
 
-The CLI currently fetches GitHub PR snapshots. It does not run the full AI review
-pipeline yet.
+The CLI provides `fetch` and `review` subcommands.
+
+### Fetch PR snapshots
 
 Fetch PR metadata, commits, changed files, and diff as JSON:
 
@@ -156,6 +177,27 @@ python -m reviewpilot fetch https://github.com/OWNER/REPO/pull/123 --token githu
 
 If `--token` is omitted, the CLI reads `GITHUB_PAT` or `GITHUB_TOKEN` from the
 environment.
+
+### Run a full review
+
+Run the configured AI review pipeline and print a Markdown report:
+
+```powershell
+python -m reviewpilot review https://github.com/OWNER/REPO/pull/123
+```
+
+Options:
+
+```powershell
+python -m reviewpilot review <pr_url> \
+  --format json|markdown \   # default: markdown
+  --out report.md \          # write to file instead of stdout
+  --token github_pat \       # GitHub token (falls back to env)
+  --post-comment             # post review summary as a PR comment
+```
+
+Pipeline configuration (`REVIEW_FETCH_MODE`, `REVIEW_LLM_PROVIDER`,
+`REVIEW_STATIC_VALIDATOR`) is read from `.env` / environment variables.
 
 ## Development Checks
 
@@ -184,7 +226,7 @@ reviewpilot/
   api/          FastAPI routes for review, auth, and feedback
   analyzer/     summary, risk, line-review agents and prompts
   auth/         GitHub OAuth and signed session helpers
-  context/      diff parsing, file trimming, Python AST context
+  context/      diff parsing, file trimming, multi-language AST context
   fetcher/      GitHub API and local git checkout helpers
   post/         finding merge, sorting, confidence, report assembly
   static/       CSS and JavaScript for the HTMX/SSE UI
@@ -197,12 +239,8 @@ examples/       sample PR payloads
 
 ## Current Limitations
 
-- Review jobs and final reports are stored in memory; feedback is stored in
-  SQLite.
-- GitHub PR comment posting is not implemented.
-- CLI review output is not implemented; CLI only fetches PR context.
-- Qwen settings exist, but the configured pipeline currently supports DeepSeek
-  and offline mode.
-- Semgrep is present as an optional integration point, not an active default
-  validator.
-- AST context is Python-focused.
+- Diff hunk review is capped at 20 hunks per job (a P3 finding is emitted when
+  truncation occurs).
+- `get_settings()` caches the first read; runtime env changes require a restart.
+- Frontend report streaming depends on a browser `EventSource` connection; there
+  is no reconnect with missed-event catch-up.
