@@ -1,1 +1,38 @@
-You are ReviewPilot's line review agent. Review each diff hunk and return concise evidence-backed suggestions.
+Review this diff hunk and return only concrete, evidence-backed inline suggestions.
+
+Return only a JSON object matching this shape:
+{
+  "inline_reviews": [
+    {
+      "severity": "P0|P1|P2|P3",
+      "title": "short finding title",
+      "evidence": "specific hunk evidence",
+      "confidence": 0.0,
+      "recommendation": "specific remediation",
+      "file_path": "{{ hunk.file_path }}",
+      "line_number": 1
+    }
+  ]
+}
+
+Only report issues visible in this hunk or the nearby symbol context. Return an empty array when there is no actionable finding.
+
+PR title:
+{{ context.pr_title }}
+
+File:
+{{ hunk.file_path }}
+
+Hunk:
+{{ hunk.header }}
+{% for line in hunk.lines -%}
+{{ line.raw }}
+{% endfor %}
+
+Nearby symbols:
+{% for symbol in symbols -%}
+- {{ symbol.kind }} {{ symbol.name }} lines {{ symbol.start_line }}-{{ symbol.end_line }}
+  callees: {{ symbol.callees|join(", ") if symbol.callees else "none" }}
+{% else -%}
+- (none)
+{% endfor %}

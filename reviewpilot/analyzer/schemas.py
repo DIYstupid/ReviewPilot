@@ -24,6 +24,10 @@ class RiskReport(BaseModel):
     risks: list[ReviewFinding] = Field(default_factory=list)
 
 
+class InlineReviewReport(BaseModel):
+    inline_reviews: list[ReviewFinding] = Field(default_factory=list)
+
+
 class ReviewReport(BaseModel):
     summary: str
     risks: list[ReviewFinding] = Field(default_factory=list)
