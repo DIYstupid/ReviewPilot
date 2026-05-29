@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from reviewpilot.context.ast_graph import SymbolContext
+from reviewpilot.context.ast_graph import SymbolContext, build_symbol_contexts
 from reviewpilot.context.diff import DiffFile, DiffHunk, flatten_hunks, parse_unified_diff
 from reviewpilot.context.files import FileContext, build_file_contexts
 from reviewpilot.fetcher.github_api import PullRequestSnapshot
@@ -37,4 +37,5 @@ def build_review_context(
             max_chars_per_file=max_chars_per_file,
             max_total_chars=max_total_file_chars,
         ),
+        symbols=build_symbol_contexts(file_contents or {}, flatten_hunks(diff_files)),
     )

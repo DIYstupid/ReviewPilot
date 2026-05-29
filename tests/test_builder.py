@@ -45,7 +45,7 @@ def test_build_review_context_uses_snapshot_metadata_diff_and_file_context() -> 
 
     context = build_review_context(
         snapshot,
-        file_contents={"app.py": "abcdef"},
+        file_contents={"app.py": "def changed():\n    return helper()\n"},
         max_chars_per_file=4,
         max_total_file_chars=4,
     )
@@ -57,5 +57,6 @@ def test_build_review_context_uses_snapshot_metadata_diff_and_file_context() -> 
     assert len(context.diff_files) == 1
     assert len(context.hunks) == 1
     assert context.hunks[0].file_path == "app.py"
-    assert context.file_contexts["app.py"].content == "abcd"
+    assert context.file_contexts["app.py"].content == "def "
     assert context.file_contexts["app.py"].truncated is True
+    assert context.symbols[0].name == "changed"
