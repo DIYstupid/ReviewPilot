@@ -1,6 +1,7 @@
 import pytest
 
 from reviewpilot.analyzer.llm import LLMRequest, LLMResponse
+from reviewpilot.analyzer.schemas import ReviewFinding, Severity
 from reviewpilot.review_service import (
     ReviewConfigurationError,
     ReviewPipelineClients,
@@ -105,6 +106,7 @@ async def test_run_configured_review_job_records_status_and_report_events(
         "analyzing_summary",
         "analyzing_risks",
         "analyzing_lines",
+        "validating_static",
         "postprocessing",
         "complete",
     ]
@@ -247,6 +249,36 @@ async def test_create_review_job_uses_injected_snapshot_and_clients() -> None:
     assert risk_client.requests[0].metadata == {"agent": "risk"}
     assert line_client.requests[0].metadata["agent"] == "line_review"
     assert job_store.get(job.job_id) == job
+
+
+@pytest.mark.asyncio
+async def test_create_review_job_includes_static_validator_findings() -> None:
+    job_store.clear()
+
+    async def static_validator(file_contents: dict[str, str]) -> list[ReviewFinding]:
+        assert file_contents == {"app.py": "print(user)\n"}
+        return [
+            ReviewFinding(
+                severity=Severity.p1,
+                title="Ruff F821: Undefined name `user`",
+                evidence="app.py:1 - F821: Undefined name `user`",
+                confidence=1.0,
+                recommendation="Define user before using it.",
+                file_path="app.py",
+                line_number=1,
+            )
+        ]
+
+    job = await create_review_job(
+        "https://github.com/owner/repo/pull/2",
+        snapshot_fetcher=FakeSnapshotFetcher(_make_snapshot()),
+        file_contents={"app.py": "print(user)\n"},
+        static_validator=static_validator,
+    )
+
+    assert job.report is not None
+    assert job.report.risks[0].title == "Ruff F821: Undefined name `user`"
+    assert job.report.risks[0].confidence == 1.0
 
 
 @pytest.mark.asyncio

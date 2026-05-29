@@ -9,7 +9,7 @@ from typing import Any
 from reviewpilot.analyzer.llm import ChatCompletionClient, create_deepseek_client
 from reviewpilot.analyzer.line_review import generate_inline_reviews
 from reviewpilot.analyzer.risk import generate_risks
-from reviewpilot.analyzer.schemas import ReviewReport
+from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
 from reviewpilot.analyzer.summary import generate_summary
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import build_review_context
@@ -24,6 +24,7 @@ from reviewpilot.post.report import build_review_report
 
 
 SnapshotFetcher = Callable[[PullRequestRef], Awaitable[PullRequestSnapshot]]
+StaticValidator = Callable[[dict[str, str]], Awaitable[list[ReviewFinding]]]
 
 
 class ReviewConfigurationError(RuntimeError):
@@ -186,6 +187,7 @@ async def create_github_review_job(
     file_contents: dict[str, str] | None = None,
     job_id: str | None = None,
     record_events: bool = False,
+    static_validator: StaticValidator | None = None,
 ) -> ReviewJob:
     settings = get_settings()
     github = GitHubClient(token=settings.github_pat)
@@ -196,6 +198,7 @@ async def create_github_review_job(
         file_contents=file_contents,
         job_id=job_id,
         record_events=record_events,
+        static_validator=static_validator,
     )
 
 
@@ -221,6 +224,7 @@ async def create_review_job(
     file_contents: dict[str, str] | None = None,
     job_id: str | None = None,
     record_events: bool = False,
+    static_validator: StaticValidator | None = None,
 ) -> ReviewJob:
     ref = parse_pr_url(pr_url)
     review_job_id = job_id or stable_job_id(ref)
@@ -239,10 +243,12 @@ async def create_review_job(
     risks = await generate_risks(context, client=pipeline_clients.risk)
     _record_status(review_job_id, "analyzing_lines", record_events)
     inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
+    _record_status(review_job_id, "validating_static", record_events)
+    static_findings = await static_validator(file_contents or {}) if static_validator else []
     _record_status(review_job_id, "postprocessing", record_events)
     report = build_review_report(
         summary=summary.content,
-        risks=risks.risks,
+        risks=risks.risks + static_findings,
         inline_reviews=inline_reviews.inline_reviews,
     )
     if record_events:
