@@ -7,7 +7,7 @@ from reviewpilot.fetcher.github_api import (
 )
 
 
-def test_build_review_context_uses_snapshot_metadata_and_diff() -> None:
+def test_build_review_context_uses_snapshot_metadata_diff_and_file_context() -> None:
     snapshot = PullRequestSnapshot(
         ref=PullRequestRef(owner="owner", repo="repo", number=1),
         metadata=PullRequestMetadata(
@@ -43,7 +43,12 @@ def test_build_review_context_uses_snapshot_metadata_and_diff() -> None:
 """,
     )
 
-    context = build_review_context(snapshot)
+    context = build_review_context(
+        snapshot,
+        file_contents={"app.py": "abcdef"},
+        max_chars_per_file=4,
+        max_total_file_chars=4,
+    )
 
     assert context.pr_title == "Fix parser"
     assert context.pr_body == "Adds line numbers"
@@ -52,3 +57,5 @@ def test_build_review_context_uses_snapshot_metadata_and_diff() -> None:
     assert len(context.diff_files) == 1
     assert len(context.hunks) == 1
     assert context.hunks[0].file_path == "app.py"
+    assert context.file_contexts["app.py"].content == "abcd"
+    assert context.file_contexts["app.py"].truncated is True
