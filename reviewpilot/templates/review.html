@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <main id="review-stream">
-  <h1>Review {{ job_id }}</h1>
+  <h1>Review {{ job.ref.slug }}</h1>
+  {% if job.report %}
+  <section>
+    <h2>Summary</h2>
+    <p>{{ job.report.summary }}</p>
+  </section>
+  <section>
+    <h2>Merge Conclusion</h2>
+    <p>{{ job.report.merge_conclusion }}</p>
+  </section>
+  {% endif %}
 </main>
 {% endblock %}
