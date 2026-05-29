@@ -7,8 +7,8 @@ ReviewPilot is planned as a FastAPI + Jinja2 + HTMX application that turns a Git
 ## Local Setup
 
 ```powershell
-uv sync --extra dev
-uv run uvicorn reviewpilot.main:app --reload
+D:\mincondapy39\envs\agent\python.exe -m pip install -r requirements-dev.txt
+D:\mincondapy39\envs\agent\python.exe -m uvicorn reviewpilot.main:app --reload
 ```
 
 Copy `.env.example` to `.env` and fill in secrets before using live GitHub or LLM integrations.
@@ -18,11 +18,11 @@ Copy `.env.example` to `.env` and fill in secrets before using live GitHub or LL
 Fetch a pull request snapshot:
 
 ```powershell
-uv run reviewpilot fetch https://github.com/OWNER/REPO/pull/123
+D:\mincondapy39\envs\agent\python.exe -m reviewpilot fetch https://github.com/OWNER/REPO/pull/123
 ```
 
 Print only the unified diff:
 
 ```powershell
-uv run reviewpilot fetch https://github.com/OWNER/REPO/pull/123 --format diff
+D:\mincondapy39\envs\agent\python.exe -m reviewpilot fetch https://github.com/OWNER/REPO/pull/123 --format diff
 ```

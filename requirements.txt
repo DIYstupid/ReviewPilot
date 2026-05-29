@@ -1,0 +1,17 @@
+authlib
+cryptography
+diskcache
+fastapi
+gitpython
+httpx
+itsdangerous
+jinja2
+loguru
+pydantic>=2
+pydantic-settings
+ruff
+sse-starlette
+sqlmodel
+tree-sitter
+tree-sitter-language-pack
+uvicorn[standard]
