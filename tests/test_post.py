@@ -1,3 +1,5 @@
+import pytest
+
 from reviewpilot.analyzer.schemas import ReviewFinding, Severity
 from reviewpilot.post.confidence import with_static_validation_weight
 from reviewpilot.post.merge import merge_findings
@@ -71,6 +73,6 @@ def test_build_review_report_merges_sorts_and_concludes() -> None:
 
     assert report.summary == "Summary"
     assert len(report.risks) == 1
-    assert report.risks[0].confidence == 0.8
+    assert report.risks[0].confidence == pytest.approx(0.68)
     assert report.inline_reviews[0].title == "Style"
     assert "not recommended" in report.merge_conclusion

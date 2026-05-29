@@ -334,6 +334,7 @@ async def test_create_review_job_includes_static_validator_findings() -> None:
                 recommendation="Define user before using it.",
                 file_path="app.py",
                 line_number=1,
+                source="ruff",
             )
         ]
 
@@ -400,6 +401,7 @@ async def test_create_github_review_job_fetches_file_contents_for_static_validat
                 recommendation="Define user before using it.",
                 file_path="app.py",
                 line_number=1,
+                source="ruff",
             )
         ]
 

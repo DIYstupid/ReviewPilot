@@ -7,10 +7,10 @@ from hashlib import sha1
 from typing import Any
 
 from reviewpilot.analyzer.llm import ChatCompletionClient, create_deepseek_client
-from reviewpilot.analyzer.line_review import generate_inline_reviews
-from reviewpilot.analyzer.risk import generate_risks
+from reviewpilot.analyzer.line_review import LineReviewResult, generate_inline_reviews
+from reviewpilot.analyzer.risk import RiskAnalysisResult, generate_risks
 from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
-from reviewpilot.analyzer.summary import generate_summary
+from reviewpilot.analyzer.summary import SummaryResult, generate_summary
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import build_review_context
 from reviewpilot.fetcher.github_api import (
@@ -115,6 +115,16 @@ class ReviewJobStore:
                 _review_event(job_id, "error", {"message": error}),
                 _review_event(job_id, "status", {"status": "failed"}),
             ),
+        )
+        self.put(updated)
+        return updated
+
+    def record_stage_error(self, job_id: str, stage: str, message: str) -> ReviewJob:
+        job = self._require(job_id)
+        updated = replace(
+            job,
+            events=job.events
+            + (_review_event(job_id, "stage_error", {"stage": stage, "message": message}),),
         )
         self.put(updated)
         return updated
@@ -286,17 +296,42 @@ async def _create_review_job_from_snapshot(
     static_validator: StaticValidator | None,
 ) -> ReviewJob:
     _record_status(job_id, "building_context", record_events)
-    context = build_review_context(snapshot, file_contents=file_contents)
+    try:
+        context = build_review_context(snapshot, file_contents=file_contents)
+    except Exception as exc:
+        _record_error(job_id, "building_context", str(exc), record_events)
+        context = build_review_context(snapshot, file_contents={})
+
     pipeline_clients = clients or ReviewPipelineClients()
 
     _record_status(job_id, "analyzing_summary", record_events)
-    summary = await generate_summary(context, client=pipeline_clients.summary)
+    try:
+        summary = await generate_summary(context, client=pipeline_clients.summary)
+    except Exception as exc:
+        _record_error(job_id, "summary", str(exc), record_events)
+        summary = SummaryResult(content="Summary generation failed.")
+
     _record_status(job_id, "analyzing_risks", record_events)
-    risks = await generate_risks(context, client=pipeline_clients.risk)
+    try:
+        risks = await generate_risks(context, client=pipeline_clients.risk)
+    except Exception as exc:
+        _record_error(job_id, "risks", str(exc), record_events)
+        risks = RiskAnalysisResult(risks=[])
+
     _record_status(job_id, "analyzing_lines", record_events)
-    inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
+    try:
+        inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
+    except Exception as exc:
+        _record_error(job_id, "inline_reviews", str(exc), record_events)
+        inline_reviews = LineReviewResult(inline_reviews=[])
+
     _record_status(job_id, "validating_static", record_events)
-    static_findings = await static_validator(file_contents or {}) if static_validator else []
+    try:
+        static_findings = await static_validator(file_contents or {}) if static_validator else []
+    except Exception as exc:
+        _record_error(job_id, "static_validation", str(exc), record_events)
+        static_findings = []
+
     _record_status(job_id, "postprocessing", record_events)
     report = build_review_report(
         summary=summary.content,
@@ -370,6 +405,11 @@ def _normalize_mode(value: str | None) -> str:
 def _record_status(job_id: str, status: str, enabled: bool) -> None:
     if enabled:
         job_store.update_status(job_id, status)
+
+
+def _record_error(job_id: str, stage: str, message: str, enabled: bool) -> None:
+    if enabled:
+        job_store.record_stage_error(job_id, stage, message)
 
 
 def _review_event(job_id: str, event: str, data: dict[str, Any]) -> ReviewEvent:

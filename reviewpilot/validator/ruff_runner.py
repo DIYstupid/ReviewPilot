@@ -90,6 +90,7 @@ def _diagnostic_to_finding(diagnostic: dict[str, Any], root: Path | None) -> Rev
         recommendation=_recommendation(diagnostic),
         file_path=filename,
         line_number=line_number,
+        source="ruff",
     )
 
 

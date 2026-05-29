@@ -148,30 +148,45 @@ class GitHubClient:
         )
 
     async def fetch_changed_file_contents(self, snapshot: PullRequestSnapshot) -> dict[str, str]:
+        import asyncio
+
         import httpx
 
         ref = snapshot.metadata.head_sha or snapshot.metadata.head_ref
         if not ref:
             return {}
 
-        contents: dict[str, str] = {}
-        headers = self._headers()
-        async with httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=headers,
-            timeout=self.timeout,
-        ) as client:
-            for changed_file in snapshot.files:
-                if changed_file.status == "removed" or not changed_file.filename:
-                    continue
+        files_to_fetch = [
+            f for f in snapshot.files
+            if f.status != "removed" and f.filename
+        ]
+        if not files_to_fetch:
+            return {}
+
+        sem = asyncio.Semaphore(8)
+
+        async def fetch_one(client: httpx.AsyncClient, changed_file: ChangedFile) -> tuple[str, str | None]:
+            async with sem:
                 data = await self._get_json(
                     client,
                     _contents_path(snapshot.ref, changed_file.filename),
                     params={"ref": ref},
                 )
-                content = _decode_file_content(data)
-                if content is not None:
-                    contents[changed_file.filename] = content
+                return changed_file.filename, _decode_file_content(data)
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self._headers(),
+            timeout=self.timeout,
+        ) as client:
+            results = await asyncio.gather(
+                *[fetch_one(client, f) for f in files_to_fetch]
+            )
+
+        contents: dict[str, str] = {}
+        for filename, content in results:
+            if content is not None:
+                contents[filename] = content
         return contents
 
     def _headers(self, accept: str = "application/vnd.github+json") -> dict[str, str]:

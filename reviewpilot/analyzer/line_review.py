@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -64,30 +65,44 @@ async def generate_inline_reviews(
     context: ReviewContext,
     client: ChatCompletionClient | None = None,
     max_hunks: int = 20,
+    concurrency: int = 4,
 ) -> LineReviewResult:
     if client is None:
         return LineReviewResult(inline_reviews=[])
 
     settings = get_settings()
+    hunks = context.hunks[:max_hunks]
+    sem = asyncio.Semaphore(concurrency)
+
+    async def review_one(hunk: DiffHunk) -> tuple[list[ReviewFinding], str, bool]:
+        async with sem:
+            request = LLMRequest(
+                model=settings.deepseek_model,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+                messages=[
+                    ChatMessage(role="system", content="You are ReviewPilot's line review agent."),
+                    ChatMessage(role="user", content=render_line_review_prompt(context, hunk)),
+                ],
+                metadata={"agent": "line_review", "file_path": hunk.file_path, "hunk": hunk.header},
+            )
+            try:
+                response = await client.complete(request)
+                report = parse_inline_review_report(response.content)
+                return report.inline_reviews, response.model, response.cached
+            except LineReviewOutputError:
+                return [], settings.deepseek_model, False
+
+    results = await asyncio.gather(*[review_one(h) for h in hunks])
+
     findings: list[ReviewFinding] = []
     cached = False
     model = settings.deepseek_model
-    for hunk in context.hunks[:max_hunks]:
-        request = LLMRequest(
-            model=settings.deepseek_model,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-            messages=[
-                ChatMessage(role="system", content="You are ReviewPilot's line review agent."),
-                ChatMessage(role="user", content=render_line_review_prompt(context, hunk)),
-            ],
-            metadata={"agent": "line_review", "file_path": hunk.file_path, "hunk": hunk.header},
-        )
-        response = await client.complete(request)
-        report = parse_inline_review_report(response.content)
-        findings.extend(report.inline_reviews)
-        cached = cached or response.cached
-        model = response.model
+    for inline_reviews, resp_model, resp_cached in results:
+        findings.extend(inline_reviews)
+        cached = cached or resp_cached
+        if resp_model and resp_model != settings.deepseek_model:
+            model = resp_model
 
     return LineReviewResult(
         inline_reviews=collect_inline_reviews(findings),

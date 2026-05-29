@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +11,9 @@ class Severity(StrEnum):
     p3 = "P3"
 
 
+FindingSource = Literal["llm", "ruff", "semgrep"]
+
+
 class ReviewFinding(BaseModel):
     severity: Severity
     title: str
@@ -18,6 +22,7 @@ class ReviewFinding(BaseModel):
     recommendation: str
     file_path: str | None = None
     line_number: int | None = Field(default=None, ge=1)
+    source: FindingSource = "llm"
 
 
 class RiskReport(BaseModel):
