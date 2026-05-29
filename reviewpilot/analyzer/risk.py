@@ -6,7 +6,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pydantic import ValidationError
 
 from reviewpilot.analyzer.llm import ChatMessage, ChatCompletionClient, LLMRequest
-from reviewpilot.analyzer.schemas import ReviewFinding, RiskReport
+from reviewpilot.analyzer.schemas import ReviewFinding, RiskReport, Severity
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import ReviewContext
 
@@ -53,6 +53,34 @@ def fallback_risk_analysis(context: ReviewContext) -> RiskAnalysisResult:
     return RiskAnalysisResult(risks=[])
 
 
+def _apply_self_consistency(
+    first: list[ReviewFinding],
+    second: list[ReviewFinding],
+    third: list[ReviewFinding],
+) -> list[ReviewFinding]:
+    result: list[ReviewFinding] = []
+    for finding in first:
+        if finding.severity != Severity.p0:
+            result.append(finding)
+            continue
+        votes = 1
+        if any(_findings_match(finding, f) for f in second):
+            votes += 1
+        if any(_findings_match(finding, f) for f in third):
+            votes += 1
+        if votes >= 2:
+            result.append(finding)
+        else:
+            result.append(finding.model_copy(update={"confidence": 0.5}))
+    return result
+
+
+def _findings_match(a: ReviewFinding, b: ReviewFinding) -> bool:
+    if a.severity != b.severity:
+        return False
+    return a.title.strip().lower() == b.title.strip().lower()
+
+
 async def generate_risks(
     context: ReviewContext,
     client: ChatCompletionClient | None = None,
@@ -73,8 +101,23 @@ async def generate_risks(
     )
     response = await client.complete(request)
     report = parse_risk_report(response.content)
+    risks = rank_risks(report.risks)
+    model = response.model
+    cached = response.cached
+
+    p0_findings = [f for f in risks if f.severity == Severity.p0]
+    if p0_findings:
+        second_response = await client.complete(request)
+        third_response = await client.complete(request)
+        second_risks = parse_risk_report(second_response.content).risks
+        third_risks = parse_risk_report(third_response.content).risks
+        risks = _apply_self_consistency(risks, second_risks, third_risks)
+        risks = rank_risks(risks)
+        cached = cached and second_response.cached and third_response.cached
+        model = model or second_response.model or third_response.model
+
     return RiskAnalysisResult(
-        risks=rank_risks(report.risks),
-        model=response.model,
-        cached=response.cached,
+        risks=risks,
+        model=model,
+        cached=cached,
     )

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from hashlib import sha1
 from typing import Any
 
-from reviewpilot.analyzer.llm import ChatCompletionClient, create_deepseek_client
+from reviewpilot.analyzer.llm import ChatCompletionClient, create_deepseek_client, create_qwen_client
 from reviewpilot.analyzer.line_review import LineReviewResult, generate_inline_reviews
 from reviewpilot.analyzer.risk import RiskAnalysisResult, generate_risks
 from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
@@ -449,6 +449,9 @@ def build_review_pipeline_clients(provider: str | None = None) -> ReviewPipeline
         return ReviewPipelineClients()
     if llm_provider == "deepseek":
         client = create_deepseek_client()
+        return ReviewPipelineClients(summary=client, risk=client, line_review=client)
+    if llm_provider == "qwen":
+        client = create_qwen_client()
         return ReviewPipelineClients(summary=client, risk=client, line_review=client)
     raise ReviewConfigurationError(f"Unsupported review_llm_provider: {provider}")
 

@@ -61,7 +61,32 @@ def build_symbol_contexts(
                 )
             )
 
-    return contexts
+    callers_by_name = _build_caller_index(file_contents)
+    result: list[SymbolContext] = []
+    for ctx in contexts:
+        result.append(
+            SymbolContext(
+                name=ctx.name,
+                file_path=ctx.file_path,
+                kind=ctx.kind,
+                start_line=ctx.start_line,
+                end_line=ctx.end_line,
+                callees=ctx.callees,
+                callers=callers_by_name.get(ctx.name, []),
+            )
+        )
+    return result
+
+
+def _build_caller_index(file_contents: dict[str, str]) -> dict[str, list[str]]:
+    index: dict[str, set[str]] = {}
+    for file_path, content in file_contents.items():
+        if not file_path.endswith(".py"):
+            continue
+        for definition in extract_python_symbols(content):
+            for callee in definition.callees:
+                index.setdefault(callee, set()).add(definition.name)
+    return {name: sorted(callers) for name, callers in index.items()}
 
 
 def extract_python_symbols(content: str) -> list[SymbolDefinition]:
