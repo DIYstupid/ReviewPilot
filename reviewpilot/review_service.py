@@ -21,6 +21,7 @@ from reviewpilot.fetcher.github_api import (
     parse_pr_url,
 )
 from reviewpilot.post.report import build_review_report
+from reviewpilot.validator.ruff_runner import run_ruff_validator
 
 
 SnapshotFetcher = Callable[[PullRequestRef], Awaitable[PullRequestSnapshot]]
@@ -161,6 +162,7 @@ async def create_configured_review_job(
 ) -> ReviewJob:
     settings = get_settings()
     clients = build_review_pipeline_clients(settings.review_llm_provider)
+    static_validator = build_static_validator(getattr(settings, "review_static_validator", "none"))
     fetch_mode = _normalize_mode(settings.review_fetch_mode)
 
     if fetch_mode == "offline":
@@ -169,6 +171,7 @@ async def create_configured_review_job(
             clients=clients,
             job_id=job_id,
             record_events=record_events,
+            static_validator=static_validator,
         )
     if fetch_mode == "github":
         return await create_github_review_job(
@@ -176,6 +179,7 @@ async def create_configured_review_job(
             clients=clients,
             job_id=job_id,
             record_events=record_events,
+            static_validator=static_validator,
         )
     raise ReviewConfigurationError(f"Unsupported review_fetch_mode: {settings.review_fetch_mode}")
 
@@ -191,12 +195,24 @@ async def create_github_review_job(
 ) -> ReviewJob:
     settings = get_settings()
     github = GitHubClient(token=settings.github_pat)
-    return await create_review_job(
-        pr_url,
-        snapshot_fetcher=github.fetch_pull_request,
+    ref = parse_pr_url(pr_url)
+    review_job_id = job_id or stable_job_id(ref)
+    if record_events and job_store.get(review_job_id) is None:
+        job_store.create_pending(pr_url)
+
+    _record_status(review_job_id, "fetching", record_events)
+    snapshot = await github.fetch_pull_request(ref)
+    if file_contents is None:
+        _record_status(review_job_id, "fetching_files", record_events)
+        file_contents = await github.fetch_changed_file_contents(snapshot)
+
+    return await _create_review_job_from_snapshot(
+        pr_url=pr_url,
+        ref=ref,
+        snapshot=snapshot,
         clients=clients,
         file_contents=file_contents,
-        job_id=job_id,
+        job_id=review_job_id,
         record_events=record_events,
         static_validator=static_validator,
     )
@@ -233,28 +249,51 @@ async def create_review_job(
 
     _record_status(review_job_id, "fetching", record_events)
     snapshot = await snapshot_fetcher(ref) if snapshot_fetcher else _empty_snapshot(ref, pr_url)
-    _record_status(review_job_id, "building_context", record_events)
+    return await _create_review_job_from_snapshot(
+        pr_url=pr_url,
+        ref=ref,
+        snapshot=snapshot,
+        clients=clients,
+        file_contents=file_contents,
+        job_id=review_job_id,
+        record_events=record_events,
+        static_validator=static_validator,
+    )
+
+
+async def _create_review_job_from_snapshot(
+    *,
+    pr_url: str,
+    ref: PullRequestRef,
+    snapshot: PullRequestSnapshot,
+    clients: ReviewPipelineClients | None,
+    file_contents: dict[str, str] | None,
+    job_id: str,
+    record_events: bool,
+    static_validator: StaticValidator | None,
+) -> ReviewJob:
+    _record_status(job_id, "building_context", record_events)
     context = build_review_context(snapshot, file_contents=file_contents)
     pipeline_clients = clients or ReviewPipelineClients()
 
-    _record_status(review_job_id, "analyzing_summary", record_events)
+    _record_status(job_id, "analyzing_summary", record_events)
     summary = await generate_summary(context, client=pipeline_clients.summary)
-    _record_status(review_job_id, "analyzing_risks", record_events)
+    _record_status(job_id, "analyzing_risks", record_events)
     risks = await generate_risks(context, client=pipeline_clients.risk)
-    _record_status(review_job_id, "analyzing_lines", record_events)
+    _record_status(job_id, "analyzing_lines", record_events)
     inline_reviews = await generate_inline_reviews(context, client=pipeline_clients.line_review)
-    _record_status(review_job_id, "validating_static", record_events)
+    _record_status(job_id, "validating_static", record_events)
     static_findings = await static_validator(file_contents or {}) if static_validator else []
-    _record_status(review_job_id, "postprocessing", record_events)
+    _record_status(job_id, "postprocessing", record_events)
     report = build_review_report(
         summary=summary.content,
         risks=risks.risks + static_findings,
         inline_reviews=inline_reviews.inline_reviews,
     )
     if record_events:
-        return job_store.complete(review_job_id, report)
+        return job_store.complete(job_id, report)
 
-    job = ReviewJob(job_id=review_job_id, pr_url=pr_url, ref=ref, status="complete", report=report)
+    job = ReviewJob(job_id=job_id, pr_url=pr_url, ref=ref, status="complete", report=report)
     job_store.put(job)
     return job
 
@@ -265,6 +304,7 @@ def validate_review_configuration() -> None:
     if fetch_mode not in {"offline", "github"}:
         raise ReviewConfigurationError(f"Unsupported review_fetch_mode: {settings.review_fetch_mode}")
     build_review_pipeline_clients(settings.review_llm_provider)
+    build_static_validator(getattr(settings, "review_static_validator", "none"))
 
 
 def build_review_pipeline_clients(provider: str | None = None) -> ReviewPipelineClients:
@@ -275,6 +315,15 @@ def build_review_pipeline_clients(provider: str | None = None) -> ReviewPipeline
         client = create_deepseek_client()
         return ReviewPipelineClients(summary=client, risk=client, line_review=client)
     raise ReviewConfigurationError(f"Unsupported review_llm_provider: {provider}")
+
+
+def build_static_validator(provider: str | None = None) -> StaticValidator | None:
+    static_provider = _normalize_mode(provider)
+    if static_provider in {"none", "offline"}:
+        return None
+    if static_provider == "ruff":
+        return run_ruff_validator
+    raise ReviewConfigurationError(f"Unsupported review_static_validator: {provider}")
 
 
 def stable_job_id(ref: PullRequestRef) -> str:

@@ -6,6 +6,7 @@ from reviewpilot.review_service import (
     ReviewConfigurationError,
     ReviewPipelineClients,
     build_review_pipeline_clients,
+    build_static_validator,
     create_configured_review_job,
     create_deepseek_review_job,
     create_github_review_job,
@@ -187,6 +188,13 @@ async def test_create_configured_review_job_can_use_github_and_deepseek(
         async def fetch_pull_request(self, ref: PullRequestRef) -> PullRequestSnapshot:
             return _make_snapshot(ref)
 
+        async def fetch_changed_file_contents(
+            self,
+            snapshot: PullRequestSnapshot,
+        ) -> dict[str, str]:
+            _ = snapshot
+            return {"app.py": "def changed():\n    return helper()\n"}
+
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
     monkeypatch.setattr("reviewpilot.review_service.create_deepseek_client", lambda: llm_client)
     monkeypatch.setattr("reviewpilot.review_service.GitHubClient", FakeGitHubClient)
@@ -297,6 +305,13 @@ async def test_create_github_review_job_uses_configured_client(monkeypatch: pyte
         async def fetch_pull_request(self, ref: PullRequestRef) -> PullRequestSnapshot:
             return _make_snapshot(ref)
 
+        async def fetch_changed_file_contents(
+            self,
+            snapshot: PullRequestSnapshot,
+        ) -> dict[str, str]:
+            _ = snapshot
+            return {"app.py": "def changed():\n    return helper()\n"}
+
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
     monkeypatch.setattr("reviewpilot.review_service.GitHubClient", FakeGitHubClient)
 
@@ -306,6 +321,59 @@ async def test_create_github_review_job_uses_configured_client(monkeypatch: pyte
     assert job.status == "complete"
     assert job.report is not None
     assert "Fix parser" in job.report.summary
+
+
+@pytest.mark.asyncio
+async def test_create_github_review_job_fetches_file_contents_for_static_validator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_store.clear()
+
+    async def static_validator(file_contents: dict[str, str]) -> list[ReviewFinding]:
+        assert file_contents == {"app.py": "print(user)\n"}
+        return [
+            ReviewFinding(
+                severity=Severity.p1,
+                title="Ruff F821: Undefined name `user`",
+                evidence="app.py:1 - F821: Undefined name `user`",
+                confidence=1.0,
+                recommendation="Define user before using it.",
+                file_path="app.py",
+                line_number=1,
+            )
+        ]
+
+    class FakeSettings:
+        github_pat = "test-token"
+
+    class FakeGitHubClient:
+        fetched_contents = False
+
+        def __init__(self, token: str | None = None) -> None:
+            _ = token
+
+        async def fetch_pull_request(self, ref: PullRequestRef) -> PullRequestSnapshot:
+            return _make_snapshot(ref)
+
+        async def fetch_changed_file_contents(
+            self,
+            snapshot: PullRequestSnapshot,
+        ) -> dict[str, str]:
+            _ = snapshot
+            FakeGitHubClient.fetched_contents = True
+            return {"app.py": "print(user)\n"}
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+    monkeypatch.setattr("reviewpilot.review_service.GitHubClient", FakeGitHubClient)
+
+    job = await create_github_review_job(
+        "https://github.com/owner/repo/pull/2",
+        static_validator=static_validator,
+    )
+
+    assert FakeGitHubClient.fetched_contents is True
+    assert job.report is not None
+    assert job.report.risks[0].title == "Ruff F821: Undefined name `user`"
 
 
 @pytest.mark.asyncio
@@ -337,6 +405,13 @@ async def test_create_deepseek_review_job_reuses_one_client(monkeypatch: pytest.
 def test_build_review_pipeline_clients_rejects_unknown_provider() -> None:
     with pytest.raises(ReviewConfigurationError):
         build_review_pipeline_clients("unknown")
+
+
+def test_build_static_validator_supports_ruff_and_rejects_unknown() -> None:
+    assert build_static_validator("ruff") is not None
+    assert build_static_validator("none") is None
+    with pytest.raises(ReviewConfigurationError):
+        build_static_validator("unknown")
 
 
 def _make_snapshot(ref: PullRequestRef | None = None) -> PullRequestSnapshot:

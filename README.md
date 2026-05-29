@@ -19,6 +19,7 @@ To enable live PR fetching and DeepSeek analysis, set:
 ```env
 REVIEW_FETCH_MODE=github
 REVIEW_LLM_PROVIDER=deepseek
+REVIEW_STATIC_VALIDATOR=ruff
 GITHUB_PAT=github_pat_or_token_here
 DEEPSEEK_API_KEY=deepseek_key_here
 ```
@@ -29,6 +30,7 @@ Supported modes:
 | --- | --- | --- |
 | `REVIEW_FETCH_MODE` | `offline` | `offline`, `github` |
 | `REVIEW_LLM_PROVIDER` | `offline` | `offline`, `deepseek` |
+| `REVIEW_STATIC_VALIDATOR` | `none` | `none`, `ruff` |
 
 ## CLI
 

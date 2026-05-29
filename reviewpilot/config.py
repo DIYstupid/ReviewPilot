@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     cache_dir: str = ".cache/reviewpilot"
     review_fetch_mode: str = "offline"
     review_llm_provider: str = "offline"
+    review_static_validator: str = "none"
 
     github_client_id: str | None = None
     github_client_secret: str | None = None

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from urllib.parse import quote
 from urllib.parse import urlparse
 
 
@@ -29,6 +32,7 @@ class PullRequestMetadata:
     changed_files: int
     additions: int
     deletions: int
+    head_sha: str = ""
 
 
 @dataclass(frozen=True)
@@ -122,6 +126,7 @@ class GitHubClient:
                 html_url=pr_data.get("html_url") or "",
                 base_ref=(pr_data.get("base") or {}).get("ref") or "",
                 head_ref=(pr_data.get("head") or {}).get("ref") or "",
+                head_sha=(pr_data.get("head") or {}).get("sha") or "",
                 author=(pr_data.get("user") or {}).get("login") or "",
                 changed_files=int(pr_data.get("changed_files") or 0),
                 additions=int(pr_data.get("additions") or 0),
@@ -142,6 +147,33 @@ class GitHubClient:
             diff=diff,
         )
 
+    async def fetch_changed_file_contents(self, snapshot: PullRequestSnapshot) -> dict[str, str]:
+        import httpx
+
+        ref = snapshot.metadata.head_sha or snapshot.metadata.head_ref
+        if not ref:
+            return {}
+
+        contents: dict[str, str] = {}
+        headers = self._headers()
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=headers,
+            timeout=self.timeout,
+        ) as client:
+            for changed_file in snapshot.files:
+                if changed_file.status == "removed" or not changed_file.filename:
+                    continue
+                data = await self._get_json(
+                    client,
+                    _contents_path(snapshot.ref, changed_file.filename),
+                    params={"ref": ref},
+                )
+                content = _decode_file_content(data)
+                if content is not None:
+                    contents[changed_file.filename] = content
+        return contents
+
     def _headers(self, accept: str = "application/vnd.github+json") -> dict[str, str]:
         headers = {
             "Accept": accept,
@@ -152,8 +184,13 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    async def _get_json(self, client: Any, path: str) -> dict[str, Any]:
-        response = await client.get(path, headers=self._headers())
+    async def _get_json(
+        self,
+        client: Any,
+        path: str,
+        params: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        response = await client.get(path, headers=self._headers(), params=params)
         self._raise_for_status(response)
         data = response.json()
         if not isinstance(data, dict):
@@ -189,3 +226,22 @@ class GitHubClient:
             return
         message = response.text[:300] if response.text else response.reason_phrase
         raise GitHubAPIError(f"GitHub API returned {response.status_code}: {message}")
+
+
+def _contents_path(ref: PullRequestRef, file_path: str) -> str:
+    encoded_path = "/".join(quote(part, safe="") for part in file_path.split("/"))
+    return f"/repos/{ref.owner}/{ref.repo}/contents/{encoded_path}"
+
+
+def _decode_file_content(data: dict[str, Any]) -> str | None:
+    if data.get("type") != "file" or data.get("encoding") != "base64":
+        return None
+    raw_content = data.get("content")
+    if not isinstance(raw_content, str):
+        return None
+
+    try:
+        decoded = base64.b64decode(raw_content, validate=False)
+        return decoded.decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return None
