@@ -1,4 +1,9 @@
-<article class="finding-card severity-{{ risk.severity.value | lower }}">
+<article
+  class="finding-card severity-{{ risk.severity.value | lower }}"
+  data-finding-card
+  data-severity="{{ risk.severity.value }}"
+  data-source="{{ risk.source }}"
+>
   <header class="finding-header">
     <span class="severity-badge">{{ risk.severity.value }}</span>
     <h3>{{ risk.title }}</h3>

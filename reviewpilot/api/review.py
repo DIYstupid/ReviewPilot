@@ -4,13 +4,14 @@ import json
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from reviewpilot.analyzer.llm import LLMConfigurationError
 from reviewpilot.auth.session import get_github_token_from_request
 from reviewpilot.fetcher.github_api import GitHubAPIError
 from reviewpilot.markdown import render_markdown
+from reviewpilot.render import render_report_markdown
 from reviewpilot.review_service import (
     ReviewConfigurationError,
     create_pending_configured_review_job,
@@ -82,6 +83,30 @@ async def review_page(request: Request, job_id: str):
         request,
         "review.html",
         {"job": job, "job_id": job_id, "diff_files": diff_files},
+    )
+
+
+@router.get("/review/{job_id}/report.md")
+async def download_report_markdown(job_id: str):
+    job = job_store.get(job_id)
+    if job is None or job.report is None:
+        raise HTTPException(status_code=404, detail="Review report not found")
+    content = render_report_markdown(job.report, report_language=job.report_language)
+    return PlainTextResponse(
+        content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}.md"'},
+    )
+
+
+@router.get("/review/{job_id}/report.json")
+async def download_report_json(job_id: str):
+    job = job_store.get(job_id)
+    if job is None or job.report is None:
+        raise HTTPException(status_code=404, detail="Review report not found")
+    return JSONResponse(
+        job.report.model_dump(mode="json"),
+        headers={"Content-Disposition": f'attachment; filename="{job_id}.json"'},
     )
 
 

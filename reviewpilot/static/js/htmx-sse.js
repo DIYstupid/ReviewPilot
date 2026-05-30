@@ -158,11 +158,15 @@
       children.push(feedbackForm(finding, jobId));
     }
 
-    return node(
+    const card = node(
       "article",
       { className: `finding-card severity-${severity.toLowerCase()}` },
       children,
     );
+    card.setAttribute("data-finding-card", "");
+    card.setAttribute("data-severity", severity);
+    card.setAttribute("data-source", text(finding.source, "llm"));
+    return card;
   }
 
   function reportSection(title, children, count) {
@@ -301,6 +305,7 @@
     clearChildren(elements.report);
 
     elements.report.append(
+      renderActionSection(elements),
       reportSection("Summary", [
         node("div", {
           className: "summary-text markdown-body",
@@ -350,6 +355,45 @@
         window.hljs.highlightElement(block);
       });
     }
+    applyFindingFilters();
+  }
+
+  function renderActionSection(elements) {
+    const copyButton = node("button", { text: "Copy Markdown" });
+    copyButton.type = "button";
+    copyButton.setAttribute("data-copy-report", "");
+    const mdLink = node("a", { text: "Download Markdown" });
+    mdLink.href = elements.markdownUrl || "#";
+    const jsonLink = node("a", { text: "Download JSON" });
+    jsonLink.href = elements.jsonUrl || "#";
+    const status = node("span", { text: "" });
+    status.setAttribute("data-copy-status", "");
+
+    const severity = document.createElement("select");
+    severity.setAttribute("data-filter-severity", "");
+    for (const option of ["all", "P0", "P1", "P2", "P3"]) {
+      const opt = document.createElement("option");
+      opt.value = option;
+      opt.textContent = option === "all" ? "All" : option;
+      severity.append(opt);
+    }
+
+    const source = document.createElement("select");
+    source.setAttribute("data-filter-source", "");
+    for (const option of ["all", "llm", "ruff", "semgrep"]) {
+      const opt = document.createElement("option");
+      opt.value = option;
+      opt.textContent = option === "all" ? "All" : option.toUpperCase();
+      source.append(opt);
+    }
+
+    return reportSection("Report Actions", [
+      node("div", { className: "action-row" }, [copyButton, mdLink, jsonLink, status]),
+      node("div", { className: "filter-row" }, [
+        node("label", { text: "Severity " }, [severity]),
+        node("label", { text: "Source " }, [source]),
+      ]),
+    ]);
   }
 
   function renderDiffSection(diffFiles) {
@@ -445,6 +489,8 @@
       statusText: document.querySelector("[data-status-text]"),
       jobId: root.getAttribute("data-job-id") || "",
       diffData: null,
+      markdownUrl: root.getAttribute("data-report-markdown-url") || "",
+      jsonUrl: root.getAttribute("data-report-json-url") || "",
     };
 
     updateStatus(root.getAttribute("data-current-status") || "pending", elements);
@@ -526,6 +572,64 @@
     });
   }
 
+  function initReportActions() {
+    document.addEventListener("click", function (event) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.matches("[data-copy-report]")) {
+        return;
+      }
+
+      const root = document.querySelector("[data-report-markdown-url]");
+      const status = document.querySelector("[data-copy-status]");
+      const url = root ? root.getAttribute("data-report-markdown-url") : "";
+      if (!url) {
+        if (status) status.textContent = "Copy unavailable";
+        return;
+      }
+
+      fetch(url)
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error("Report fetch failed");
+          }
+          return response.text();
+        })
+        .then(function (markdown) {
+          return navigator.clipboard.writeText(markdown);
+        })
+        .then(function () {
+          if (status) status.textContent = "Copied";
+        })
+        .catch(function () {
+          if (status) status.textContent = "Could not copy";
+        });
+    });
+
+    document.addEventListener("change", function (event) {
+      const target = event.target;
+      if (
+        target instanceof HTMLSelectElement &&
+        (target.matches("[data-filter-severity]") || target.matches("[data-filter-source]"))
+      ) {
+        applyFindingFilters();
+      }
+    });
+  }
+
+  function applyFindingFilters() {
+    const severity = document.querySelector("[data-filter-severity]");
+    const source = document.querySelector("[data-filter-source]");
+    const severityValue = severity instanceof HTMLSelectElement ? severity.value : "all";
+    const sourceValue = source instanceof HTMLSelectElement ? source.value : "all";
+
+    for (const card of document.querySelectorAll("[data-finding-card]")) {
+      const severityMatches = severityValue === "all" || card.getAttribute("data-severity") === severityValue;
+      const sourceMatches = sourceValue === "all" || card.getAttribute("data-source") === sourceValue;
+      card.classList.toggle("is-filtered", !(severityMatches && sourceMatches));
+    }
+  }
+
   document.addEventListener("DOMContentLoaded", initReviewStream);
   document.addEventListener("DOMContentLoaded", initFeedbackForms);
+  document.addEventListener("DOMContentLoaded", initReportActions);
 })();

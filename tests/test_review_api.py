@@ -61,6 +61,7 @@ def test_review_page_renders_pending_job_and_stream_target() -> None:
 
     assert response.status_code == 200
     assert f'data-review-stream-url="/review/{job.job_id}/stream"' in response.text
+    assert f'data-report-markdown-url="/review/{job.job_id}/report.md"' in response.text
     assert "owner/repo#1" in response.text
     assert "Review running" in response.text
     assert "Queued" in response.text
@@ -130,7 +131,10 @@ def test_review_page_renders_complete_report() -> None:
     assert "<li>Handles <strong>renamed</strong> fields.</li>" in response.text
     assert "<li>Keeps <code>legacy_name</code> fallback.</li>" in response.text
     assert "Merge is not recommended until P1 bugs are fixed." in response.text
+    assert "Copy Markdown" in response.text
+    assert f"/review/{job.job_id}/report.json" in response.text
     assert "Missing fallback for old field" in response.text
+    assert 'data-source="llm"' in response.text
     assert 'href="#diff-app-py-R12"' in response.text
     assert 'id="diff-app-py-R12"' in response.text
     assert "Extract repeated parsing branch" in response.text
@@ -148,6 +152,38 @@ def test_review_page_renders_failed_job_error() -> None:
     assert response.status_code == 200
     assert "Review failed" in response.text
     assert "review failed" in response.text
+
+
+def test_download_report_markdown_and_json() -> None:
+    job_store.clear()
+    client = TestClient(app)
+    job = job_store.create_pending("https://github.com/owner/repo/pull/1")
+    report = ReviewReport(
+        summary="Summary",
+        merge_conclusion="Merge can proceed.",
+        risks=[],
+        inline_reviews=[],
+    )
+    job_store.complete(job.job_id, report)
+
+    markdown_response = client.get(f"/review/{job.job_id}/report.md")
+    json_response = client.get(f"/review/{job.job_id}/report.json")
+
+    assert markdown_response.status_code == 200
+    assert "# Review Report" in markdown_response.text
+    assert "attachment" in markdown_response.headers["content-disposition"]
+    assert json_response.status_code == 200
+    assert json_response.json()["summary"] == "Summary"
+
+
+def test_download_report_returns_404_before_report_exists() -> None:
+    job_store.clear()
+    client = TestClient(app)
+    job = job_store.create_pending("https://github.com/owner/repo/pull/1")
+
+    response = client.get(f"/review/{job.job_id}/report.md")
+
+    assert response.status_code == 404
 
 
 def test_stream_review_returns_status_and_report_events() -> None:
@@ -179,6 +215,7 @@ def test_review_page_loads_sse_client_asset() -> None:
 
     assert response.status_code == 200
     assert "EventSource" in response.text
+    assert "data-filter-severity" in response.text
 
 
 def test_create_review_returns_503_for_pipeline_configuration_error(

@@ -31,6 +31,8 @@
     data-review-stream-url="/review/{{ job_id }}/stream"
     data-job-id="{{ job_id }}"
     data-current-status="{{ job.status }}"
+    data-report-markdown-url="/review/{{ job_id }}/report.md"
+    data-report-json-url="/review/{{ job_id }}/report.json"
   >
     <aside class="status-panel" aria-label="Review progress">
       <h2>Progress</h2>
@@ -67,6 +69,39 @@
 
       <div id="report-content" class="report-stack{% if not job.report %} is-hidden{% endif %}">
         {% if job.report %}
+          <section class="report-section report-actions" aria-label="Report actions">
+            <div class="section-header">
+              <h2>Report Actions</h2>
+            </div>
+            <div class="action-row">
+              <button type="button" data-copy-report>Copy Markdown</button>
+              <a href="/review/{{ job_id }}/report.md">Download Markdown</a>
+              <a href="/review/{{ job_id }}/report.json">Download JSON</a>
+              <span data-copy-status></span>
+            </div>
+            <div class="filter-row" aria-label="Finding filters">
+              <label>
+                Severity
+                <select data-filter-severity>
+                  <option value="all">All</option>
+                  <option value="P0">P0</option>
+                  <option value="P1">P1</option>
+                  <option value="P2">P2</option>
+                  <option value="P3">P3</option>
+                </select>
+              </label>
+              <label>
+                Source
+                <select data-filter-source>
+                  <option value="all">All</option>
+                  <option value="llm">LLM</option>
+                  <option value="ruff">Ruff</option>
+                  <option value="semgrep">Semgrep</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
           {% with summary=job.report.summary %}
             {% include "partials/summary.html" %}
           {% endwith %}

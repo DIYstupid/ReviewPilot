@@ -1,4 +1,9 @@
-<article class="finding-card severity-{{ review.severity.value | lower }}">
+<article
+  class="finding-card severity-{{ review.severity.value | lower }}"
+  data-finding-card
+  data-severity="{{ review.severity.value }}"
+  data-source="{{ review.source }}"
+>
   <header class="finding-header">
     <span class="severity-badge">{{ review.severity.value }}</span>
     <h3>{{ review.title }}</h3>

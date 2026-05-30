@@ -266,6 +266,10 @@ input {
   gap: 14px;
 }
 
+.report-actions {
+  background: #fbfcfd;
+}
+
 .message-panel {
   margin-bottom: 14px;
   background: #fbfcfd;
@@ -370,6 +374,51 @@ input {
   color: #52616f;
 }
 
+.action-row,
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.action-row button,
+.action-row a {
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17457f;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.action-row span {
+  color: #52616f;
+  font-size: 12px;
+}
+
+.filter-row label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: #52616f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.filter-row select {
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #172026;
+  padding: 6px 8px;
+  font: inherit;
+}
+
 .finding-list {
   display: grid;
   gap: 12px;
@@ -381,6 +430,10 @@ input {
   border-left-width: 4px;
   border-radius: 8px;
   padding: 14px;
+}
+
+.finding-card.is-filtered {
+  display: none;
 }
 
 .finding-card.severity-p0 {
