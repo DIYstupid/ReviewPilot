@@ -71,6 +71,7 @@ def test_review_page_renders_complete_report() -> None:
     job_store.clear()
     client = TestClient(app)
     job = job_store.create_pending("https://github.com/owner/repo/pull/1")
+    job_store.record_stage_timing(job.job_id, "fetching", 123)
     job_store.record_diff(
         job.job_id,
         [
@@ -131,6 +132,8 @@ def test_review_page_renders_complete_report() -> None:
     assert "<li>Handles <strong>renamed</strong> fields.</li>" in response.text
     assert "<li>Keeps <code>legacy_name</code> fallback.</li>" in response.text
     assert "Merge is not recommended until P1 bugs are fixed." in response.text
+    assert "123ms" in response.text
+    assert 'data-stage-duration="fetching"' in response.text
     assert "Copy Markdown" in response.text
     assert f"/review/{job.job_id}/report.json" in response.text
     assert "Missing fallback for old field" in response.text
@@ -216,6 +219,7 @@ def test_review_page_loads_sse_client_asset() -> None:
     assert response.status_code == 200
     assert "EventSource" in response.text
     assert "data-filter-severity" in response.text
+    assert "stage_timing" in response.text
 
 
 def test_create_review_returns_503_for_pipeline_configuration_error(

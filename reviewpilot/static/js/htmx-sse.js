@@ -511,6 +511,14 @@
       }
     });
 
+    source.addEventListener("stage_timing", function (event) {
+      const payload = parseEvent(event);
+      if (!payload || !payload.stage) {
+        return;
+      }
+      updateStageTiming(payload.stage, payload.duration_label || "", elements);
+    });
+
     source.addEventListener("report", function (event) {
       const payload = parseEvent(event);
       if (payload) {
@@ -570,6 +578,15 @@
           }
         });
     });
+  }
+
+  function updateStageTiming(stage, label) {
+    const badge = document.querySelector(`[data-stage-duration="${stage}"]`);
+    if (!badge) {
+      return;
+    }
+    badge.textContent = label;
+    badge.classList.toggle("is-hidden", !label);
   }
 
   function initReportActions() {

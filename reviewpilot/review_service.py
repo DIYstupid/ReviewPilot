@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -185,6 +186,26 @@ class ReviewJobStore:
         self._notify(job_id)
         return updated
 
+    def record_stage_timing(self, job_id: str, stage: str, duration_ms: int) -> ReviewJob:
+        job = self._require(job_id)
+        new_event = _review_event(
+            job_id,
+            "stage_timing",
+            {
+                "stage": stage,
+                "duration_ms": duration_ms,
+                "duration_label": _duration_label(duration_ms),
+            },
+        )
+        updated = replace(
+            job,
+            events=job.events + (new_event,),
+        )
+        self.put(updated)
+        self._persist_events(job_id, (new_event,))
+        self._notify(job_id)
+        return updated
+
     def clear(self) -> None:
         self._jobs.clear()
         self._events.clear()
@@ -359,10 +380,14 @@ async def create_github_review_job(
         job_store.create_pending(pr_url, report_language=normalized_language)
 
     _record_status(review_job_id, "fetching", record_events)
+    stage_started = time.perf_counter()
     snapshot = await github.fetch_pull_request(ref)
+    _record_timing(review_job_id, "fetching", stage_started, record_events)
     if file_contents is None:
         _record_status(review_job_id, "fetching_files", record_events)
+        stage_started = time.perf_counter()
         file_contents = await github.fetch_changed_file_contents(snapshot)
+        _record_timing(review_job_id, "fetching_files", stage_started, record_events)
 
     return await _create_review_job_from_snapshot(
         pr_url=pr_url,
@@ -411,7 +436,9 @@ async def create_review_job(
         job_store.create_pending(pr_url, report_language=normalized_language)
 
     _record_status(review_job_id, "fetching", record_events)
+    stage_started = time.perf_counter()
     snapshot = await snapshot_fetcher(ref) if snapshot_fetcher else _empty_snapshot(ref, pr_url)
+    _record_timing(review_job_id, "fetching", stage_started, record_events)
     return await _create_review_job_from_snapshot(
         pr_url=pr_url,
         ref=ref,
@@ -440,6 +467,7 @@ async def _create_review_job_from_snapshot(
     log = job_logger(job_id)
 
     _record_status(job_id, "building_context", record_events)
+    stage_started = time.perf_counter()
     log.info("building context | files={}", len(file_contents or {}))
     try:
         context = build_review_context(snapshot, file_contents=file_contents)
@@ -447,6 +475,7 @@ async def _create_review_job_from_snapshot(
         _record_error(job_id, "building_context", str(exc), record_events)
         log.warning("context build failed, falling back: {}", exc)
         context = build_review_context(snapshot, file_contents={})
+    _record_timing(job_id, "building_context", stage_started, record_events)
 
     pipeline_clients = clients or ReviewPipelineClients()
     log.info("context built | hunks={} symbols={}", len(context.hunks), len(context.symbols))
@@ -454,6 +483,7 @@ async def _create_review_job_from_snapshot(
         job_store.record_diff(job_id, serialize_diff_files(context.diff_files))
 
     _record_status(job_id, "analyzing_summary", record_events)
+    stage_started = time.perf_counter()
     log.info("generating summary")
     try:
         summary = await generate_summary(
@@ -468,8 +498,10 @@ async def _create_review_job_from_snapshot(
         summary = SummaryResult(
             content="摘要生成失败。" if report_language == "zh" else "Summary generation failed."
         )
+    _record_timing(job_id, "analyzing_summary", stage_started, record_events)
 
     _record_status(job_id, "analyzing_risks", record_events)
+    stage_started = time.perf_counter()
     log.info("generating risks")
     try:
         risks = await generate_risks(
@@ -482,8 +514,10 @@ async def _create_review_job_from_snapshot(
         _record_error(job_id, "risks", str(exc), record_events)
         log.warning("risk analysis failed: {}", exc)
         risks = RiskAnalysisResult(risks=[])
+    _record_timing(job_id, "analyzing_risks", stage_started, record_events)
 
     _record_status(job_id, "analyzing_lines", record_events)
+    stage_started = time.perf_counter()
     log.info("generating inline reviews")
     try:
         inline_reviews = await generate_inline_reviews(
@@ -496,8 +530,10 @@ async def _create_review_job_from_snapshot(
         _record_error(job_id, "inline_reviews", str(exc), record_events)
         log.warning("inline review failed: {}", exc)
         inline_reviews = LineReviewResult(inline_reviews=[])
+    _record_timing(job_id, "analyzing_lines", stage_started, record_events)
 
     _record_status(job_id, "validating_static", record_events)
+    stage_started = time.perf_counter()
     log.info("running static validators")
     try:
         static_findings = await static_validator(file_contents or {}) if static_validator else []
@@ -506,8 +542,10 @@ async def _create_review_job_from_snapshot(
         _record_error(job_id, "static_validation", str(exc), record_events)
         log.warning("static validation failed: {}", exc)
         static_findings = []
+    _record_timing(job_id, "validating_static", stage_started, record_events)
 
     _record_status(job_id, "postprocessing", record_events)
+    stage_started = time.perf_counter()
     log.info("building report")
     report = build_review_report(
         summary=summary.content,
@@ -515,6 +553,7 @@ async def _create_review_job_from_snapshot(
         inline_reviews=inline_reviews.inline_reviews,
         report_language=report_language,
     )
+    _record_timing(job_id, "postprocessing", stage_started, record_events)
     log.info("review complete | risks={} inline={} conclusion={}",
              len(report.risks), len(report.inline_reviews), report.merge_conclusion)
     if record_events:
@@ -611,6 +650,12 @@ def _record_error(job_id: str, stage: str, message: str, enabled: bool) -> None:
         job_store.record_stage_error(job_id, stage, message)
 
 
+def _record_timing(job_id: str, stage: str, started_at: float, enabled: bool) -> None:
+    if enabled:
+        duration_ms = max(0, round((time.perf_counter() - started_at) * 1000))
+        job_store.record_stage_timing(job_id, stage, duration_ms)
+
+
 def _review_event(job_id: str, event: str, data: dict[str, Any]) -> ReviewEvent:
     return ReviewEvent(event=event, data={"job_id": job_id, **data})
 
@@ -621,3 +666,9 @@ def _event_value(events: list[ReviewEvent], key: str) -> str | None:
         if isinstance(value, str):
             return value
     return None
+
+
+def _duration_label(duration_ms: int) -> str:
+    if duration_ms < 1000:
+        return f"{duration_ms}ms"
+    return f"{duration_ms / 1000:.1f}s"

@@ -41,7 +41,12 @@
         <li class="status-step" data-step="{{ key }}">
           <span class="status-dot" aria-hidden="true"></span>
           <div>
-            <strong>{{ label }}</strong>
+            <strong>
+              {{ label }}
+              <span class="duration-badge{% if not stage_timings.get(key) %} is-hidden{% endif %}" data-stage-duration="{{ key }}">
+                {{ stage_timings.get(key, {}).get("duration_label", "") }}
+              </span>
+            </strong>
             <p>{{ description }}</p>
           </div>
         </li>

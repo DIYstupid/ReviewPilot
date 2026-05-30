@@ -164,6 +164,17 @@ async def test_run_configured_review_job_records_status_and_report_events(
     diff_events = [event for event in job.events if event.event == "diff"]
     assert diff_events
     assert diff_events[0].data["diff_files"] == []
+    timing_events = [event for event in job.events if event.event == "stage_timing"]
+    assert [event.data["stage"] for event in timing_events] == [
+        "fetching",
+        "building_context",
+        "analyzing_summary",
+        "analyzing_risks",
+        "analyzing_lines",
+        "validating_static",
+        "postprocessing",
+    ]
+    assert all(isinstance(event.data["duration_ms"], int) for event in timing_events)
     assert any(event.event == "report" for event in job.events)
 
 

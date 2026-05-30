@@ -79,10 +79,16 @@ async def review_page(request: Request, job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Review job not found")
     diff_files = _event_payload(job.events, "diff", "diff_files") or []
+    stage_timings = _stage_timings(job.events)
     return templates.TemplateResponse(
         request,
         "review.html",
-        {"job": job, "job_id": job_id, "diff_files": diff_files},
+        {
+            "job": job,
+            "job_id": job_id,
+            "diff_files": diff_files,
+            "stage_timings": stage_timings,
+        },
     )
 
 
@@ -142,3 +148,13 @@ def _event_payload(events, event_name: str, key: str):
         if event.event == event_name:
             return event.data.get(key)
     return None
+
+
+def _stage_timings(events) -> dict[str, dict]:
+    timings = {}
+    for event in events:
+        if event.event == "stage_timing":
+            stage = event.data.get("stage")
+            if isinstance(stage, str):
+                timings[stage] = event.data
+    return timings
