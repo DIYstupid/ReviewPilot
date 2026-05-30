@@ -222,6 +222,15 @@ def test_review_page_loads_sse_client_asset() -> None:
     assert "stage_timing" in response.text
 
 
+def test_base_template_cache_busts_static_assets() -> None:
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert "/static/js/htmx-sse.js?v=20260530-report-actions" in response.text
+    assert "/static/css/output.css?v=20260530-report-actions" in response.text
+
+
 def test_create_review_returns_503_for_pipeline_configuration_error(
     monkeypatch,
 ) -> None:
