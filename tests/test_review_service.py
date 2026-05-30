@@ -161,6 +161,9 @@ async def test_run_configured_review_job_records_status_and_report_events(
         "postprocessing",
         "complete",
     ]
+    diff_events = [event for event in job.events if event.event == "diff"]
+    assert diff_events
+    assert diff_events[0].data["diff_files"] == []
     assert any(event.event == "report" for event in job.events)
 
 
@@ -378,6 +381,24 @@ async def test_create_review_job_passes_report_language_to_agents() -> None:
     assert summary_client.requests[0].metadata["report_language"] == "zh"
     assert risk_client.requests[0].metadata["report_language"] == "zh"
     assert line_client.requests[0].metadata["report_language"] == "zh"
+
+
+@pytest.mark.asyncio
+async def test_create_review_job_records_diff_event_with_snapshot() -> None:
+    job_store.clear()
+    snapshot = _make_snapshot()
+
+    job = await create_review_job(
+        "https://github.com/owner/repo/pull/2",
+        snapshot_fetcher=FakeSnapshotFetcher(snapshot),
+        file_contents={"app.py": "def changed():\n    return helper()\n"},
+        record_events=True,
+    )
+
+    diff_events = [event for event in job.events if event.event == "diff"]
+    assert diff_events
+    assert diff_events[0].data["diff_files"][0]["path"] == "app.py"
+    assert diff_events[0].data["diff_files"][0]["hunks"][0]["lines"][2]["new_line"] == 2
 
 
 @pytest.mark.asyncio

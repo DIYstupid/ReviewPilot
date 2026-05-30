@@ -15,6 +15,7 @@ from reviewpilot.analyzer.schemas import ReviewFinding, ReviewReport
 from reviewpilot.analyzer.summary import SummaryResult, generate_summary
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import build_review_context
+from reviewpilot.context.diff import serialize_diff_files
 from reviewpilot.logging_config import job_logger
 from reviewpilot.language import ReportLanguage, normalize_report_language
 from reviewpilot.db import (
@@ -163,6 +164,18 @@ class ReviewJobStore:
     def record_stage_error(self, job_id: str, stage: str, message: str) -> ReviewJob:
         job = self._require(job_id)
         new_event = _review_event(job_id, "stage_error", {"stage": stage, "message": message})
+        updated = replace(
+            job,
+            events=job.events + (new_event,),
+        )
+        self.put(updated)
+        self._persist_events(job_id, (new_event,))
+        self._notify(job_id)
+        return updated
+
+    def record_diff(self, job_id: str, diff_files: list[dict[str, Any]]) -> ReviewJob:
+        job = self._require(job_id)
+        new_event = _review_event(job_id, "diff", {"diff_files": diff_files})
         updated = replace(
             job,
             events=job.events + (new_event,),
@@ -437,6 +450,8 @@ async def _create_review_job_from_snapshot(
 
     pipeline_clients = clients or ReviewPipelineClients()
     log.info("context built | hunks={} symbols={}", len(context.hunks), len(context.symbols))
+    if record_events:
+        job_store.record_diff(job_id, serialize_diff_files(context.diff_files))
 
     _record_status(job_id, "analyzing_summary", record_events)
     log.info("generating summary")

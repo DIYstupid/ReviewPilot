@@ -105,6 +105,38 @@
               {% endfor %}
             </div>
           </section>
+
+          <section class="report-section">
+            <div class="section-header">
+              <h2>Diff</h2>
+              <span class="count-badge">{{ diff_files | length }}</span>
+            </div>
+            <div id="diff-content" class="diff-stack">
+              {% for diff_file in diff_files %}
+              <article class="diff-file">
+                <h3 class="break-anywhere">{{ diff_file.path }}</h3>
+                {% for hunk in diff_file.hunks %}
+                <div class="diff-hunk">
+                  <div class="diff-hunk-header">{{ hunk.header }}</div>
+                  {% for line in hunk.lines %}
+                  {% set anchor_line = line.new_line if line.new_line is not none else line.old_line %}
+                  <div
+                    class="diff-row diff-row--{{ line.kind }}"
+                    {% if anchor_line %}id="{{ hunk.file_path | line_anchor(anchor_line) }}"{% endif %}
+                  >
+                    <span class="diff-line-no">{{ line.old_line or "" }}</span>
+                    <span class="diff-line-no">{{ line.new_line or "" }}</span>
+                    <code>{{ line.raw }}</code>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endfor %}
+              </article>
+              {% else %}
+              <p class="empty-state">No diff was captured for this review.</p>
+              {% endfor %}
+            </div>
+          </section>
         {% endif %}
       </div>
     </section>

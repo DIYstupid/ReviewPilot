@@ -34,6 +34,16 @@ def _confidence_level_css(confidence: float) -> str:
 templates.env.filters["confidence_level"] = _confidence_level_css
 
 
+def _line_anchor(file_path: str | None, line_number: int | None) -> str:
+    if not file_path or line_number is None:
+        return ""
+    safe_path = "".join(ch if ch.isalnum() else "-" for ch in file_path).strip("-")
+    return f"diff-{safe_path}-R{line_number}"
+
+
+templates.env.filters["line_anchor"] = _line_anchor
+
+
 @router.get("/")
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html", {})
@@ -67,7 +77,12 @@ async def review_page(request: Request, job_id: str):
     job = job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Review job not found")
-    return templates.TemplateResponse(request, "review.html", {"job": job, "job_id": job_id})
+    diff_files = _event_payload(job.events, "diff", "diff_files") or []
+    return templates.TemplateResponse(
+        request,
+        "review.html",
+        {"job": job, "job_id": job_id, "diff_files": diff_files},
+    )
 
 
 @router.get("/review/{job_id}/stream")
@@ -95,3 +110,10 @@ async def stream_review(job_id: str):
             await job_store._wait_for_events(job_id)
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+def _event_payload(events, event_name: str, key: str):
+    for event in events:
+        if event.event == event_name:
+            return event.data.get(key)
+    return None

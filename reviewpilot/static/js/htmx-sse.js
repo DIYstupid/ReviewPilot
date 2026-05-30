@@ -144,7 +144,14 @@
 
     const children = [header];
     if (location) {
-      children.push(node("p", { className: "location break-anywhere", text: location }));
+      const link = lineAnchor(finding.file_path, finding.line_number);
+      if (link) {
+        const anchor = node("a", { text: location });
+        anchor.href = `#${link}`;
+        children.push(node("p", { className: "location break-anywhere" }, [anchor]));
+      } else {
+        children.push(node("p", { className: "location break-anywhere", text: location }));
+      }
     }
     children.push(body);
     if (jobId) {
@@ -171,6 +178,16 @@
 
   function emptyState(message) {
     return node("p", { className: "empty-state", text: message });
+  }
+
+  function lineAnchor(filePath, lineNumber) {
+    if (!filePath || !lineNumber) {
+      return "";
+    }
+    const safePath = text(filePath)
+      .replace(/[^A-Za-z0-9]/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return `diff-${safePath}-R${lineNumber}`;
   }
 
   function escapeHtml(value) {
@@ -320,6 +337,10 @@
     }
     elements.report.append(reportSection("Inline Review", [inlineList], inlineReviews.length));
 
+    if (elements.diffData) {
+      elements.report.append(renderDiffSection(elements.diffData));
+    }
+
     setHidden(elements.loading, true);
     setHidden(elements.error, true);
     setHidden(elements.report, false);
@@ -329,6 +350,43 @@
         window.hljs.highlightElement(block);
       });
     }
+  }
+
+  function renderDiffSection(diffFiles) {
+    const diffStack = node("div", { id: "diff-content", className: "diff-stack" });
+    if (!Array.isArray(diffFiles) || !diffFiles.length) {
+      diffStack.append(emptyState("No diff was captured for this review."));
+      return reportSection("Diff", [diffStack], 0);
+    }
+
+    for (const diffFile of diffFiles) {
+      const fileNode = node("article", { className: "diff-file" }, [
+        node("h3", { className: "break-anywhere", text: text(diffFile.path, "changed file") }),
+      ]);
+      const hunks = Array.isArray(diffFile.hunks) ? diffFile.hunks : [];
+      for (const hunk of hunks) {
+        const hunkNode = node("div", { className: "diff-hunk" }, [
+          node("div", { className: "diff-hunk-header", text: text(hunk.header) }),
+        ]);
+        const lines = Array.isArray(hunk.lines) ? hunk.lines : [];
+        for (const line of lines) {
+          const anchorLine = line.new_line || line.old_line;
+          const row = node("div", { className: `diff-row diff-row--${text(line.kind, "context")}` }, [
+            node("span", { className: "diff-line-no", text: line.old_line || "" }),
+            node("span", { className: "diff-line-no", text: line.new_line || "" }),
+            node("code", { text: text(line.raw) }),
+          ]);
+          const anchor = lineAnchor(hunk.file_path || diffFile.path, anchorLine);
+          if (anchor) {
+            row.id = anchor;
+          }
+          hunkNode.append(row);
+        }
+        fileNode.append(hunkNode);
+      }
+      diffStack.append(fileNode);
+    }
+    return reportSection("Diff", [diffStack], diffFiles.length);
   }
 
   function updateStatus(status, elements) {
@@ -386,6 +444,7 @@
       pill: document.querySelector("[data-status-pill]"),
       statusText: document.querySelector("[data-status-text]"),
       jobId: root.getAttribute("data-job-id") || "",
+      diffData: null,
     };
 
     updateStatus(root.getAttribute("data-current-status") || "pending", elements);
@@ -410,6 +469,13 @@
       const payload = parseEvent(event);
       if (payload) {
         renderReport(payload, elements);
+      }
+    });
+
+    source.addEventListener("diff", function (event) {
+      const payload = parseEvent(event);
+      if (payload && Array.isArray(payload.diff_files)) {
+        elements.diffData = payload.diff_files;
       }
     });
 

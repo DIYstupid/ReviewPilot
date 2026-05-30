@@ -438,6 +438,15 @@ input {
   font-size: 13px;
 }
 
+.location a {
+  color: #17457f;
+  text-decoration: none;
+}
+
+.location a:hover {
+  text-decoration: underline;
+}
+
 .finding-body {
   display: grid;
   gap: 4px;
@@ -485,6 +494,90 @@ input {
   font-size: 12px;
 }
 
+.diff-stack {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.diff-file {
+  overflow: hidden;
+  border: 1px solid #dce2e8;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.diff-file h3 {
+  margin: 0;
+  border-bottom: 1px solid #dce2e8;
+  background: #eef1f4;
+  padding: 10px 12px;
+  color: #111820;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.diff-hunk + .diff-hunk {
+  border-top: 1px solid #dce2e8;
+}
+
+.diff-hunk-header {
+  background: #e8f1ff;
+  color: #17457f;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 48px 48px minmax(0, 1fr);
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+
+.diff-row:target {
+  outline: 2px solid #2457a6;
+  outline-offset: -2px;
+}
+
+.diff-row--addition {
+  background: #e7f6ec;
+}
+
+.diff-row--deletion {
+  background: #fdecea;
+}
+
+.diff-row--context {
+  background: #ffffff;
+}
+
+.diff-row--metadata {
+  background: #f5f7f9;
+  color: #607080;
+}
+
+.diff-line-no {
+  border-right: 1px solid #dce2e8;
+  color: #607080;
+  padding: 3px 8px;
+  text-align: right;
+  user-select: none;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.diff-row code {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px 10px;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
 .is-hidden {
   display: none !important;
 }
@@ -523,5 +616,9 @@ input {
   .finding-header {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .diff-row {
+    grid-template-columns: 38px 38px minmax(0, 1fr);
   }
 }

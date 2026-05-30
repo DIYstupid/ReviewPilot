@@ -6,7 +6,11 @@
   </header>
   {% if review.file_path %}
   <p class="location break-anywhere">
-    {{ review.file_path }}{% if review.line_number %}:{{ review.line_number }}{% endif %}
+    {% if review.line_number %}
+      <a href="#{{ review.file_path | line_anchor(review.line_number) }}">{{ review.file_path }}:{{ review.line_number }}</a>
+    {% else %}
+      {{ review.file_path }}
+    {% endif %}
   </p>
   {% endif %}
   <dl class="finding-body">

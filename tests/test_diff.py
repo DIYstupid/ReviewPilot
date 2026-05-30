@@ -1,4 +1,10 @@
-from reviewpilot.context.diff import DiffHunk, DiffLineKind, flatten_hunks, parse_unified_diff
+from reviewpilot.context.diff import (
+    DiffHunk,
+    DiffLineKind,
+    flatten_hunks,
+    parse_unified_diff,
+    serialize_diff_files,
+)
 
 
 def test_diff_hunk_stores_header() -> None:
@@ -65,3 +71,20 @@ diff --git a/b.py b/b.py
     hunks = flatten_hunks(parse_unified_diff(diff_text))
 
     assert [hunk.file_path for hunk in hunks] == ["a.py", "b.py"]
+
+
+def test_serialize_diff_files_keeps_line_numbers() -> None:
+    diff_text = """diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -1,2 +1,2 @@
+ def changed():
+-    return 1
++    return 2
+"""
+
+    serialized = serialize_diff_files(parse_unified_diff(diff_text))
+
+    assert serialized[0]["path"] == "app.py"
+    assert serialized[0]["hunks"][0]["lines"][1]["kind"] == "deletion"
+    assert serialized[0]["hunks"][0]["lines"][2]["new_line"] == 2

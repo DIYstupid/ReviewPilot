@@ -70,6 +70,31 @@ def test_review_page_renders_complete_report() -> None:
     job_store.clear()
     client = TestClient(app)
     job = job_store.create_pending("https://github.com/owner/repo/pull/1")
+    job_store.record_diff(
+        job.job_id,
+        [
+            {
+                "old_path": "app.py",
+                "new_path": "app.py",
+                "path": "app.py",
+                "hunks": [
+                    {
+                        "header": "@@ -10,3 +10,4 @@",
+                        "file_path": "app.py",
+                        "lines": [
+                            {
+                                "kind": "addition",
+                                "raw": "+    return payload",
+                                "text": "    return payload",
+                                "old_line": None,
+                                "new_line": 12,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
     report = ReviewReport(
         summary="## Parser summary\n\n- Handles **renamed** fields.\n- Keeps `legacy_name` fallback.",
         merge_conclusion="Merge is not recommended until P1 bugs are fixed.",
@@ -106,7 +131,8 @@ def test_review_page_renders_complete_report() -> None:
     assert "<li>Keeps <code>legacy_name</code> fallback.</li>" in response.text
     assert "Merge is not recommended until P1 bugs are fixed." in response.text
     assert "Missing fallback for old field" in response.text
-    assert "app.py:12" in response.text
+    assert 'href="#diff-app-py-R12"' in response.text
+    assert 'id="diff-app-py-R12"' in response.text
     assert "Extract repeated parsing branch" in response.text
     assert "67%" in response.text
 
@@ -139,6 +165,7 @@ def test_stream_review_returns_status_and_report_events() -> None:
 
     assert stream_response.status_code == 200
     assert "event: status" in stream_response.text
+    assert "event: diff" in stream_response.text
     assert "event: report" in stream_response.text
     assert '"status": "pending"' in stream_response.text
     assert '"status": "complete"' in stream_response.text

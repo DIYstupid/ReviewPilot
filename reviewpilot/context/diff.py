@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class DiffLineKind(StrEnum):
@@ -116,6 +117,39 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
 
 def flatten_hunks(files: list[DiffFile]) -> list[DiffHunk]:
     return [hunk for diff_file in files for hunk in diff_file.hunks]
+
+
+def serialize_diff_files(files: list[DiffFile]) -> list[dict[str, Any]]:
+    return [
+        {
+            "old_path": diff_file.old_path,
+            "new_path": diff_file.new_path,
+            "path": diff_file.path,
+            "hunks": [
+                {
+                    "header": hunk.header,
+                    "file_path": hunk.file_path,
+                    "old_start": hunk.old_start,
+                    "old_count": hunk.old_count,
+                    "new_start": hunk.new_start,
+                    "new_count": hunk.new_count,
+                    "section_header": hunk.section_header,
+                    "lines": [
+                        {
+                            "kind": line.kind.value,
+                            "text": line.text,
+                            "raw": line.raw,
+                            "old_line": line.old_line,
+                            "new_line": line.new_line,
+                        }
+                        for line in hunk.lines
+                    ],
+                }
+                for hunk in diff_file.hunks
+            ],
+        }
+        for diff_file in files
+    ]
 
 
 def _parse_diff_file_header(raw_line: str) -> DiffFile:
