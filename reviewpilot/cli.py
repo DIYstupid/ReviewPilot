@@ -13,6 +13,7 @@ from reviewpilot.fetcher.github_api import (
     GitHubClient,
     parse_pr_url,
 )
+from reviewpilot.language import normalize_report_language
 from reviewpilot.render import render_comment_body, render_report_markdown
 from reviewpilot.review_service import (
     ReviewConfigurationError,
@@ -45,6 +46,7 @@ def _add_review_parser(subparsers: argparse._SubParsersAction) -> None:
     )
     p.add_argument("--out", default=None, metavar="PATH", help="Write output to file instead of stdout")
     p.add_argument("--token", default=None, help="GitHub token")
+    p.add_argument("--lang", choices=("en", "zh"), default="en", help="Report language")
     p.add_argument("--post-comment", action="store_true", help="Post review summary as a PR comment")
 
 
@@ -66,7 +68,12 @@ async def run_fetch(args: argparse.Namespace) -> int:
 
 async def run_review(args: argparse.Namespace) -> int:
     token = resolve_token(args.token)
-    job = await create_configured_review_job(args.pr_url, github_token=token)
+    report_language = normalize_report_language(args.lang)
+    job = await create_configured_review_job(
+        args.pr_url,
+        github_token=token,
+        report_language=report_language,
+    )
     if job.report is None:
         print("error: review completed but no report was produced", file=sys.stderr)
         return 1
@@ -74,7 +81,7 @@ async def run_review(args: argparse.Namespace) -> int:
     output = (
         job.report.model_dump_json(indent=2)
         if args.format == "json"
-        else render_report_markdown(job.report)
+        else render_report_markdown(job.report, report_language=report_language)
     )
 
     if args.out:
@@ -89,7 +96,7 @@ async def run_review(args: argparse.Namespace) -> int:
         if not token:
             print("error: --post-comment requires a GitHub token", file=sys.stderr)
             return 1
-        body = render_comment_body(job.report)
+        body = render_comment_body(job.report, report_language=report_language)
         client = GitHubClient(token=token)
         comment = await client.post_issue_comment(ref, body)
         print(

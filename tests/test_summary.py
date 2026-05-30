@@ -76,6 +76,12 @@ def test_summarize_context_includes_title_files_hunks_and_symbols() -> None:
     assert "changed" in summary
 
 
+def test_summarize_context_supports_chinese() -> None:
+    summary = summarize_context(make_context(), report_language="zh")
+
+    assert "变更文件" in summary
+
+
 def test_render_summary_prompt_includes_context_sections() -> None:
     prompt = render_summary_prompt(make_context())
 
@@ -84,6 +90,12 @@ def test_render_summary_prompt_includes_context_sections() -> None:
     assert "Changed files:" in prompt
     assert "app.py" in prompt
     assert "Changed symbols:" in prompt
+
+
+def test_render_summary_prompt_includes_report_language() -> None:
+    prompt = render_summary_prompt(make_context(), report_language="zh")
+
+    assert "中文" in prompt
 
 
 @pytest.mark.asyncio
@@ -95,7 +107,7 @@ async def test_generate_summary_uses_client_when_provided() -> None:
     assert result.content == "Summary from model"
     assert result.model == "deepseek-chat"
     assert client.request is not None
-    assert client.request.metadata == {"agent": "summary"}
+    assert client.request.metadata == {"agent": "summary", "report_language": "en"}
     assert client.request.temperature == 0.3
 
 

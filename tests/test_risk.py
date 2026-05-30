@@ -110,6 +110,12 @@ def test_render_risk_prompt_includes_diff_and_symbols() -> None:
     assert "Symbol context:" in prompt
 
 
+def test_render_risk_prompt_includes_report_language() -> None:
+    prompt = render_risk_prompt(make_context(), report_language="zh")
+
+    assert "中文" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_risks_uses_json_object_response_format() -> None:
     client = FakeClient(
@@ -126,6 +132,7 @@ async def test_generate_risks_uses_json_object_response_format() -> None:
     assert client.request is not None
     assert client.request.response_format == {"type": "json_object"}
     assert client.request.temperature == 0.1
+    assert client.request.metadata["report_language"] == "en"
 
 
 @pytest.mark.asyncio

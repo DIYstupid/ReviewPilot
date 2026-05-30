@@ -66,6 +66,14 @@ def test_merge_conclusion_reflects_highest_severity() -> None:
     assert "can proceed" in merge_conclusion([])
 
 
+def test_merge_conclusion_supports_chinese() -> None:
+    assert "不应合并" in merge_conclusion(
+        [finding(Severity.p0, "Security", 0.9)],
+        report_language="zh",
+    )
+    assert "可以合并" in merge_conclusion([], report_language="zh")
+
+
 def test_build_review_report_merges_sorts_and_concludes() -> None:
     report = build_review_report(
         summary="Summary",

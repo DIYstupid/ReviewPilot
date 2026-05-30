@@ -11,6 +11,7 @@ def offline_review_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeSettings:
         review_fetch_mode = "offline"
         review_llm_provider = "offline"
+        review_static_validator = "none"
 
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
 
@@ -28,6 +29,27 @@ def test_create_review_redirects_to_review_page() -> None:
 
     assert response.status_code == 303
     assert response.headers["location"].startswith("/review/owner-repo-1-")
+
+
+def test_create_review_accepts_report_language() -> None:
+    job_store.clear()
+    client = TestClient(app)
+
+    response = client.post(
+        "/review",
+        content=(
+            "pr_url=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1"
+            "&report_language=zh"
+        ),
+        headers={"content-type": "application/x-www-form-urlencoded"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    job_id = response.headers["location"].rsplit("/", 1)[-1]
+    job = job_store.get(job_id)
+    assert job is not None
+    assert job.report_language == "zh"
 
 
 def test_review_page_renders_pending_job_and_stream_target() -> None:

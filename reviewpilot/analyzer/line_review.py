@@ -11,6 +11,7 @@ from reviewpilot.analyzer.schemas import InlineReviewReport, ReviewFinding, Seve
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import ReviewContext
 from reviewpilot.context.diff import DiffHunk
+from reviewpilot.language import ReportLanguage, language_name
 
 
 def collect_inline_reviews(findings: list[ReviewFinding]) -> list[ReviewFinding]:
@@ -40,7 +41,11 @@ class LineReviewOutputError(ValueError):
     """Raised when the line review agent returns invalid structured output."""
 
 
-def render_line_review_prompt(context: ReviewContext, hunk: DiffHunk) -> str:
+def render_line_review_prompt(
+    context: ReviewContext,
+    hunk: DiffHunk,
+    report_language: ReportLanguage = "en",
+) -> str:
     template = PROMPT_ENV.get_template("line_review.j2")
     nearby_symbols = [
         symbol
@@ -51,7 +56,12 @@ def render_line_review_prompt(context: ReviewContext, hunk: DiffHunk) -> str:
         and hunk.new_start is not None
         and symbol.start_line <= hunk.new_start <= symbol.end_line
     ]
-    return template.render(context=context, hunk=hunk, symbols=nearby_symbols)
+    return template.render(
+        context=context,
+        hunk=hunk,
+        symbols=nearby_symbols,
+        report_language=language_name(report_language),
+    )
 
 
 def parse_inline_review_report(content: str) -> InlineReviewReport:
@@ -66,6 +76,7 @@ async def generate_inline_reviews(
     client: ChatCompletionClient | None = None,
     max_hunks: int = 20,
     concurrency: int = 4,
+    report_language: ReportLanguage = "en",
 ) -> LineReviewResult:
     if client is None:
         return LineReviewResult(inline_reviews=[])
@@ -83,9 +94,21 @@ async def generate_inline_reviews(
                 response_format={"type": "json_object"},
                 messages=[
                     ChatMessage(role="system", content="You are ReviewPilot's line review agent."),
-                    ChatMessage(role="user", content=render_line_review_prompt(context, hunk)),
+                    ChatMessage(
+                        role="user",
+                        content=render_line_review_prompt(
+                            context,
+                            hunk,
+                            report_language=report_language,
+                        ),
+                    ),
                 ],
-                metadata={"agent": "line_review", "file_path": hunk.file_path, "hunk": hunk.header},
+                metadata={
+                    "agent": "line_review",
+                    "file_path": hunk.file_path,
+                    "hunk": hunk.header,
+                    "report_language": report_language,
+                },
             )
             try:
                 response = await client.complete(request)
@@ -107,14 +130,29 @@ async def generate_inline_reviews(
 
     skipped = total_hunks - max_hunks
     if skipped > 0:
+        if report_language == "zh":
+            title = f"审查预算已用尽：{skipped} 个 hunk 未审查"
+            evidence = (
+                f"仅审查了 {total_hunks} 个 diff hunk 中的 {max_hunks} 个。"
+                f"其余 {skipped} 个 hunk 因审查预算限制被跳过。"
+            )
+            recommendation = "请提高 max_hunks 预算后重新运行，或人工审查剩余 hunk。"
+        else:
+            title = f"Review budget exceeded: {skipped} hunk(s) not reviewed"
+            evidence = (
+                f"Only {max_hunks} of {total_hunks} diff hunks were reviewed. "
+                f"The remaining {skipped} hunk(s) were skipped due to review budget limits."
+            )
+            recommendation = (
+                "Re-run with a higher max_hunks budget or review the remaining hunks manually."
+            )
         findings.append(
             ReviewFinding(
                 severity=Severity.p3,
-                title=f"Review budget exceeded: {skipped} hunk(s) not reviewed",
-                evidence=f"Only {max_hunks} of {total_hunks} diff hunks were reviewed. "
-                f"The remaining {skipped} hunk(s) were skipped due to review budget limits.",
+                title=title,
+                evidence=evidence,
                 confidence=1.0,
-                recommendation="Re-run with a higher max_hunks budget or review the remaining hunks manually.",
+                recommendation=recommendation,
             )
         )
 

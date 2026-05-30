@@ -20,6 +20,7 @@
       <p class="eyebrow">GitHub PR Review</p>
       <h1>{{ job.ref.slug }}</h1>
       <p class="muted break-anywhere">{{ job.pr_url }}</p>
+      <p class="muted">Report language: {{ "中文" if job.report_language == "zh" else "English" }}</p>
     </div>
     <span id="status-pill" class="status-pill" data-status-pill>{{ job.status | replace("_", " ") | title }}</span>
   </header>

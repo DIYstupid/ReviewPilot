@@ -106,6 +106,32 @@ input {
   cursor: pointer;
 }
 
+.language-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  margin: 14px 0 0;
+  border: 0;
+  padding: 0;
+}
+
+.language-field legend {
+  margin-bottom: 8px;
+  color: #52616f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.language-field label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: #2f3f4d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .review-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

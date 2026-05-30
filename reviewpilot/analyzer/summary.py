@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from reviewpilot.analyzer.llm import ChatMessage, ChatCompletionClient, LLMRequest
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import ReviewContext
+from reviewpilot.language import ReportLanguage, language_name
 
 
 PROMPT_ENV = Environment(
@@ -25,12 +26,16 @@ class SummaryResult:
     cached: bool = False
 
 
-def render_summary_prompt(context: ReviewContext) -> str:
+def render_summary_prompt(context: ReviewContext, report_language: ReportLanguage = "en") -> str:
     template = PROMPT_ENV.get_template("summary.j2")
-    return template.render(context=context, fallback_summary=summarize_context(context))
+    return template.render(
+        context=context,
+        fallback_summary=summarize_context(context, report_language=report_language),
+        report_language=language_name(report_language),
+    )
 
 
-def summarize_context(context: ReviewContext) -> str:
+def summarize_context(context: ReviewContext, report_language: ReportLanguage = "en") -> str:
     files = [diff_file.path for diff_file in context.diff_files]
     file_part = ", ".join(files[:5]) if files else "no changed files parsed"
     if len(files) > 5:
@@ -39,6 +44,14 @@ def summarize_context(context: ReviewContext) -> str:
     hunk_count = len(context.hunks)
     symbol_names = [symbol.name for symbol in context.symbols[:5]]
     symbol_part = ", ".join(symbol_names) if symbol_names else "no changed symbols detected"
+
+    if report_language == "zh":
+        return (
+            f"{context.pr_title}。"
+            f"变更文件：{file_part}。"
+            f"Diff hunks：{hunk_count}。"
+            f"符号：{symbol_part}。"
+        )
 
     return (
         f"{context.pr_title}. "
@@ -51,19 +64,23 @@ def summarize_context(context: ReviewContext) -> str:
 async def generate_summary(
     context: ReviewContext,
     client: ChatCompletionClient | None = None,
+    report_language: ReportLanguage = "en",
 ) -> SummaryResult:
     settings = get_settings()
     if client is None:
-        return SummaryResult(content=summarize_context(context))
+        return SummaryResult(content=summarize_context(context, report_language=report_language))
 
     request = LLMRequest(
         model=settings.deepseek_model,
         temperature=0.3,
         messages=[
             ChatMessage(role="system", content="You are ReviewPilot's summary agent."),
-            ChatMessage(role="user", content=render_summary_prompt(context)),
+            ChatMessage(
+                role="user",
+                content=render_summary_prompt(context, report_language=report_language),
+            ),
         ],
-        metadata={"agent": "summary"},
+        metadata={"agent": "summary", "report_language": report_language},
     )
     response = await client.complete(request)
     return SummaryResult(content=response.content, model=response.model, cached=response.cached)

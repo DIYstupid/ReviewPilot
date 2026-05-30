@@ -109,6 +109,13 @@ def test_render_line_review_prompt_includes_hunk_and_nearby_symbols() -> None:
     assert "lookup" in prompt
 
 
+def test_render_line_review_prompt_includes_report_language() -> None:
+    context = make_context()
+    prompt = render_line_review_prompt(context, context.hunks[0], report_language="zh")
+
+    assert "中文" in prompt
+
+
 @pytest.mark.asyncio
 async def test_generate_inline_reviews_calls_client_per_hunk() -> None:
     client = FakeClient(
@@ -128,6 +135,7 @@ async def test_generate_inline_reviews_calls_client_per_hunk() -> None:
     assert len(client.requests) == 1
     assert client.requests[0].response_format == {"type": "json_object"}
     assert client.requests[0].temperature == 0.2
+    assert client.requests[0].metadata["report_language"] == "en"
 
 
 @pytest.mark.asyncio

@@ -74,6 +74,7 @@ def test_create_pending_configured_review_job_stores_pending_event(
     class FakeSettings:
         review_fetch_mode = "offline"
         review_llm_provider = "offline"
+        review_static_validator = "none"
 
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
 
@@ -81,8 +82,33 @@ def test_create_pending_configured_review_job_stores_pending_event(
 
     assert job.status == "pending"
     assert job.events[0].event == "status"
-    assert job.events[0].data == {"job_id": job.job_id, "status": "pending"}
+    assert job.events[0].data == {
+        "job_id": job.job_id,
+        "status": "pending",
+        "report_language": "en",
+    }
     assert job_store.get(job.job_id) == job
+
+
+def test_create_pending_configured_review_job_stores_report_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_store.clear()
+
+    class FakeSettings:
+        review_fetch_mode = "offline"
+        review_llm_provider = "offline"
+        review_static_validator = "none"
+
+    monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
+
+    job = create_pending_configured_review_job(
+        "https://github.com/owner/repo/pull/1",
+        report_language="zh",
+    )
+
+    assert job.report_language == "zh"
+    assert job.events[0].data["report_language"] == "zh"
 
 
 def test_job_store_clears_github_token_on_terminal_state() -> None:
@@ -115,6 +141,7 @@ async def test_run_configured_review_job_records_status_and_report_events(
     class FakeSettings:
         review_fetch_mode = "offline"
         review_llm_provider = "offline"
+        review_static_validator = "none"
 
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
     pending = create_pending_configured_review_job("https://github.com/owner/repo/pull/1")
@@ -144,6 +171,7 @@ async def test_run_configured_review_job_records_failure(monkeypatch: pytest.Mon
     class FakeSettings:
         review_fetch_mode = "offline"
         review_llm_provider = "offline"
+        review_static_validator = "none"
 
     async def fail_review(pr_url: str, **kwargs):
         _ = pr_url, kwargs
@@ -168,6 +196,7 @@ async def test_create_configured_review_job_defaults_to_offline(monkeypatch: pyt
     class FakeSettings:
         review_fetch_mode = "offline"
         review_llm_provider = "offline"
+        review_static_validator = "none"
 
     monkeypatch.setattr("reviewpilot.review_service.get_settings", lambda: FakeSettings())
 
@@ -200,6 +229,7 @@ async def test_create_configured_review_job_can_use_github_and_deepseek(
     class FakeSettings:
         review_fetch_mode = "github"
         review_llm_provider = "deepseek"
+        review_static_validator = "none"
         github_pat = "test-token"
 
     class FakeGitHubClient:
@@ -245,6 +275,7 @@ async def test_create_configured_review_job_prefers_oauth_token_for_github(
     class FakeSettings:
         review_fetch_mode = "github"
         review_llm_provider = "offline"
+        review_static_validator = "none"
         github_pat = "pat-token"
 
     class FakeGitHubClient:
@@ -315,10 +346,38 @@ async def test_create_review_job_uses_injected_snapshot_and_clients() -> None:
     assert job.report.summary == "Model summary"
     assert job.report.risks[0].title == "Risk"
     assert job.report.inline_reviews[0].title == "Inline"
-    assert summary_client.requests[0].metadata == {"agent": "summary"}
-    assert risk_client.requests[0].metadata == {"agent": "risk"}
+    assert summary_client.requests[0].metadata == {"agent": "summary", "report_language": "en"}
+    assert risk_client.requests[0].metadata == {"agent": "risk", "report_language": "en"}
     assert line_client.requests[0].metadata["agent"] == "line_review"
     assert job_store.get(job.job_id) == job
+
+
+@pytest.mark.asyncio
+async def test_create_review_job_passes_report_language_to_agents() -> None:
+    job_store.clear()
+    snapshot = _make_snapshot()
+    summary_client = FakeClient([LLMResponse(content="中文摘要", model="deepseek-chat")])
+    risk_client = FakeClient([LLMResponse(content="""{"risks":[]}""", model="deepseek-chat")])
+    line_client = FakeClient([LLMResponse(content="""{"inline_reviews":[]}""", model="deepseek-chat")])
+
+    job = await create_review_job(
+        "https://github.com/owner/repo/pull/2",
+        snapshot_fetcher=FakeSnapshotFetcher(snapshot),
+        clients=ReviewPipelineClients(
+            summary=summary_client,
+            risk=risk_client,
+            line_review=line_client,
+        ),
+        file_contents={"app.py": "def changed():\n    return helper()\n"},
+        report_language="zh",
+    )
+
+    assert job.report_language == "zh"
+    assert job.report is not None
+    assert job.report.merge_conclusion == "可以合并；未发现需要处理的问题。"
+    assert summary_client.requests[0].metadata["report_language"] == "zh"
+    assert risk_client.requests[0].metadata["report_language"] == "zh"
+    assert line_client.requests[0].metadata["report_language"] == "zh"
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from reviewpilot.analyzer.llm import ChatMessage, ChatCompletionClient, LLMReque
 from reviewpilot.analyzer.schemas import ReviewFinding, RiskReport, Severity
 from reviewpilot.config import get_settings
 from reviewpilot.context.builder import ReviewContext
+from reviewpilot.language import ReportLanguage, language_name
 
 
 PROMPT_ENV = Environment(
@@ -36,9 +37,9 @@ def rank_risks(findings: list[ReviewFinding]) -> list[ReviewFinding]:
     return sorted(findings, key=lambda finding: (severity_order[finding.severity], -finding.confidence))
 
 
-def render_risk_prompt(context: ReviewContext) -> str:
+def render_risk_prompt(context: ReviewContext, report_language: ReportLanguage = "en") -> str:
     template = PROMPT_ENV.get_template("risk.j2")
-    return template.render(context=context)
+    return template.render(context=context, report_language=language_name(report_language))
 
 
 def parse_risk_report(content: str) -> RiskReport:
@@ -84,6 +85,7 @@ def _findings_match(a: ReviewFinding, b: ReviewFinding) -> bool:
 async def generate_risks(
     context: ReviewContext,
     client: ChatCompletionClient | None = None,
+    report_language: ReportLanguage = "en",
 ) -> RiskAnalysisResult:
     if client is None:
         return fallback_risk_analysis(context)
@@ -95,9 +97,12 @@ async def generate_risks(
         response_format={"type": "json_object"},
         messages=[
             ChatMessage(role="system", content="You are ReviewPilot's risk agent."),
-            ChatMessage(role="user", content=render_risk_prompt(context)),
+            ChatMessage(
+                role="user",
+                content=render_risk_prompt(context, report_language=report_language),
+            ),
         ],
-        metadata={"agent": "risk"},
+        metadata={"agent": "risk", "report_language": report_language},
     )
     response = await client.complete(request)
     report = parse_risk_report(response.content)

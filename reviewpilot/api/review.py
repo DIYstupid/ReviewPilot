@@ -43,6 +43,7 @@ async def index(request: Request):
 async def create_review(request: Request, background_tasks: BackgroundTasks):
     form = parse_qs((await request.body()).decode("utf-8"))
     pr_url = (form.get("pr_url") or [""])[0]
+    report_language = (form.get("report_language") or ["en"])[0]
     if not pr_url:
         raise HTTPException(status_code=400, detail="Missing pr_url")
 
@@ -50,6 +51,7 @@ async def create_review(request: Request, background_tasks: BackgroundTasks):
         job = create_pending_configured_review_job(
             pr_url,
             github_token=get_github_token_from_request(request),
+            report_language=report_language,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
